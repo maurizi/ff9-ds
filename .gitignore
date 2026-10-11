@@ -1,0 +1,8 @@
+build/
+ff9ds/
+/disks
+*.nds
+*.elf
+*.mcr
+*.fv
+__pycache__/

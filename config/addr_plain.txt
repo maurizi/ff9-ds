@@ -1,0 +1,3 @@
+# 0x80xxxxxx literals in decomp C that are plain numbers, not PS1 RAM addresses, so tools/portify.py must not
+# wrap them in PSX_ADDR(). One per line: <path under decomp/>:<line> <literal>   # why
+# (none yet; every literal in [0x80010000, 0x80200000) found so far is an address, see decomp-requests.md R4)
