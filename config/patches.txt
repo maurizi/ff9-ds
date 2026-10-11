@@ -1,0 +1,15 @@
+# Build-time source patches tools/portify.py applies to the decomp's C in build/portified/ (the checkout is never
+# modified). Only for spots the prelude, PsyQ layer and link overrides can't reach.
+#
+# Format: <path under decomp/> | <exact old text> | <new text> | <expected count>   # why
+# The count must match, so a patch that no longer applies (the decomp changed there) fails the build.
+
+# Script values are 26 bits; on the PS1 a RAM pointer popped back (0x00xxxxxx, the RAM mirror) works as is. DS
+# pointers (0x02xxxxxx) set bit 25, which the 26-bit sign extension turns into 0xFExxxxxx: mask it back.
+# (func_80037ACC opcodes 0x70/0x71; reported by the decomp, 2026-10-11)
+src/main/main.c | o = (Unk8004AB64 *)func_80052D40(); | o = (Unk8004AB64 *)PORT_SCRIPT_PTR(func_80052D40()); | 2
+
+# "This header field is already a RAM pointer (relocated from a file offset)": on the PS1 that's > 0x80000000,
+# in the port it's an address inside psx_ram.
+src/ovl_0a/ovl_0a.c | if (p > 0x80000000) { | if (PORT_IS_RAM_PTR(p)) { | 1
+src/ovl_0b/ovl_0b_3.c | if ((u32)f > 0x80000000) { | if (PORT_IS_RAM_PTR(f)) { | 1

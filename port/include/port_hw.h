@@ -252,6 +252,10 @@ void port_ldrotkey_lo(const void *key, const void *anim, s32 frame, void *rot);
  * DS pointers (0x02xxxxxx) survive the 26-bit mask unchanged, so the port's restore is the identity. Used by the
  * decomp's src_equiv/ (requested 2026-10-11). */
 #define SCRIPT_PTR_RESTORE(v) ((u32)(v))
+/* A pointer popped from a 26-bit script value (config/patches.txt): drop the sign extension of bit 25. */
+#define PORT_SCRIPT_PTR(v) ((u32)(v) & 0x03FFFFFF)
+/* "Is this a RAM pointer (not a file offset)?" where the PS1 tests > 0x80000000 (config/patches.txt). */
+#define PORT_IS_RAM_PTR(p) ((u32)(p) >= (u32)psx_ram && (u32)(p) < (u32)psx_ram + PSX_RAM_SIZE)
 
 /* ---- SPU registers: the emulated register file (port/psx/spu.c) ---------------------------------------- */
 /* SPU_REG16(a) keeps the decomp's definition: tools/portify.py already wraps its 0x1F80xxxx argument in PSX_HW. */

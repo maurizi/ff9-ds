@@ -11,6 +11,7 @@ Usage: portify.py SRC.c OUT.c [--report FILE]
 - Every other `0x80xxxxxx` literal in [0x80010000, 0x80200000) is an address held in an integer (allocator tops,
   buffer bases): it is wrapped too, and listed in the report for review against decomp-requests.md R4. Literals
   that are really plain numbers go in config/addr_plain.txt (`path:line literal`) and are left alone.
+- config/patches.txt: exact-text replacements for the few spots nothing else can reach.
 """
 import argparse
 import re
@@ -18,6 +19,24 @@ import sys
 from pathlib import Path
 
 PLAIN_FILE = Path(__file__).resolve().parent.parent / "config" / "addr_plain.txt"
+PATCH_FILE = Path(__file__).resolve().parent.parent / "config" / "patches.txt"
+
+
+def apply_patches(src, text):
+    """config/patches.txt: exact-text replacements with an expected count (a stale patch fails the build)."""
+    rel = src.removeprefix("decomp/")
+    for line in PATCH_FILE.read_text(encoding="utf-8").splitlines():
+        body = line.split("   #")[0].strip()
+        if not body or body.startswith("#"):
+            continue
+        path, old, new, count = (f.strip() for f in body.split(" | "))
+        if path != rel:
+            continue
+        found = text.count(old)
+        if found != int(count):
+            sys.exit(f"{src}: patch expects {count} x {old!r}, found {found} (config/patches.txt)")
+        text = text.replace(old, new)
+    return text
 
 PAD = re.compile(r'__asm__\("(?:\.section \.rodata|\.rdata)[^"]*"\);')
 HW = re.compile(r'(?<![\w(])0x1F80[0-9A-Fa-f]{4}\b')
@@ -73,6 +92,7 @@ def main():
 
     text = open(args.src, encoding="utf-8").read()
     text = PAD.sub("/* port: rodata padding removed */", text)
+    text = apply_patches(args.src, text)
 
     code = strip_comments_keep_lines(text)
     bad = [code.count("\n", 0, m.start()) + 1 for m in re.finditer(r"(?<![A-Za-z_])__asm__\s*\(", code)]

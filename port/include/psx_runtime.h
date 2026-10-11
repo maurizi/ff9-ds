@@ -26,6 +26,12 @@ extern unsigned char psx_ovl_resident[3];
 
 void psx_load_image(const PsxImageChunk *img);
 
+/* Load main's data image and enter the game's main loop (decomp func_800127A0). Never returns. */
+void psx_run_game(void);
+
+/* Print to the debug console. */
+void port_log(const char *fmt, ...) __attribute__((format(printf, 1, 2)));
+
 /* Print to the debug console and stop. */
 void port_fatal(const char *fmt, ...) __attribute__((noreturn, format(printf, 1, 2)));
 

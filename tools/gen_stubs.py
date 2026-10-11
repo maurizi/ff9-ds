@@ -29,4 +29,4 @@ for n in names:
 out.write_text("\n".join(lines) + "\n")
 (out.parent / "stubs.txt").write_text("\n".join(listing) + "\n")
 print(f"gen_stubs: {sum(1 for l in listing if l.startswith('func'))} functions, "
-      f"{sum(1 for l in listing if l.startswith('data'))} data symbols stubbed (build/gen/stubs.txt)")
+      f"{sum(1 for l in listing if l.startswith('data'))} data symbols stubbed ({out.parent / 'stubs.txt'})")

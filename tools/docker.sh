@@ -14,6 +14,13 @@ fi
 TTY=()
 [ -t 0 ] && [ -t 1 ] && TTY=(-it)
 
+# disks/ may be a link to disc images elsewhere (e.g. the decomp's): mount its target read-only at the same path.
+MOUNTS=(-v "$ROOT:/ff9ds")
+if [ -L "$ROOT/disks" ]; then
+    TARGET="$(readlink -f "$ROOT/disks")"
+    MOUNTS+=(-v "$TARGET:$TARGET:ro")
+fi
+
 # Cap memory so a runaway job cannot take down the host.
 exec docker run --rm --init --memory=8g --memory-swap=8g "${TTY[@]}" -u "$(id -u):$(id -g)" \
-    -v "$ROOT:/ff9ds" -w /ff9ds "$IMAGE:$HASH" "${@:-bash}"
+    "${MOUNTS[@]}" -w /ff9ds "$IMAGE:$HASH" "${@:-bash}"

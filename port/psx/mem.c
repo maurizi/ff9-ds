@@ -1,12 +1,10 @@
 /* The PS1 address space: psx_ram (see psx_mem.h), the scratchpad, the SPU register file, and the data images. */
-#include <stdio.h>
-#include <stdlib.h>
 #include <string.h>
 
 #include "psx_mem.h"
 #include "psx_runtime.h"
 
-unsigned char psx_ram[PSX_RAM_SIZE] __attribute__((aligned(32)));
+/* psx_ram itself is defined by the platform: a bss array on the DS, a fixed mapping at 0x02000000 on the PC. */
 unsigned char psx_scratchpad[0x400] __attribute__((aligned(32)));
 unsigned short psx_spu_regs[0x200];
 
@@ -37,4 +35,12 @@ int psx_overlay_load(unsigned int id) {
         }
     }
     return 0;
+}
+
+void func_800127A0(void); /* the game's main loop (decomp src/main/main.c) */
+
+void psx_run_game(void) {
+    psx_load_image(psximg_main);
+    func_800127A0();
+    port_fatal("the game's main loop returned");
 }

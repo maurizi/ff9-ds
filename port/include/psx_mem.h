@@ -20,6 +20,11 @@ extern unsigned short psx_spu_regs[0x200];
 /* KSEG0/KUSEG address (0x80xxxxxx / 0x00xxxxxx) -> pointer into psx_ram, as an integer like the literal was. */
 #define PSX_ADDR(a) ((unsigned int)psx_ram + ((unsigned int)(a) & (PSX_RAM_SIZE - 1)))
 
+/* A pointer the game passes to a library call that is really a small PS1 address (KUSEG, below 2 MB): Square's
+ * code sometimes passes a constant where a pointer is expected (CdControlB(CdlSetmode, (u8 *)0x80, 0) in
+ * func_80022A28), which on the PS1 reads that physical address. Map such values into psx_ram. */
+#define PSX_PTR(p) ((unsigned int)(p) < PSX_RAM_SIZE ? (void *)(psx_ram + (unsigned int)(p)) : (void *)(p))
+
 /* 0x1F80xxxx hardware address -> scratchpad or SPU register file (anything else traps in psx_hw_bad). */
 unsigned int psx_hw_bad(unsigned int a);
 #define PSX_HW(a) \
