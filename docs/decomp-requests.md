@@ -191,3 +191,17 @@ selection.
 The field and battle model formats (vertices, bones, primitive lists), the model draw functions (ovl_0a around
 ovl_0a.c:5430/6144, the battle equivalent, ovl_0c), and the animation format. This enables converting models to
 DS display lists with hardware transform.
+
+---
+
+## Open findings from the port (queued while the decomp session was offline)
+
+### F1 (2026-10-11). Definition/declaration mismatch that tools/void_returns.py misses
+ovl_0a.c:3687 defines `void func_800B2CC0(s32, s32, s32, s32)` (it calls func_800B31B8), but ff9.h:3535 declares
+`s32 func_800B2CC0(...)`, and main's script opcode 0x8F uses the result (`if (func_800B2CC0(...)) { retry }`). On
+MIPS, $v0 carries func_800B31B8's result. Off MIPS the value is garbage, and the opening scene's script retries
+forever. The tool trusts the caller's declaration (s32). ff9.h hides main-only declarations from overlay files,
+so gcc never sees the conflict.
+- (a) Fix: `s32` plus `return func_800B31B8(...)`. The port patches it at build time until then.
+- (b) Extend the check to compare every definition with every declaration of the same symbol, in any binary or
+  header (return type and parameter count).

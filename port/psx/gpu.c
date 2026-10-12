@@ -26,6 +26,9 @@ static void (*drawsync_cb)(void);
 static int drawsync_owed;
 static int graph_debug;
 
+/* PC --trace-gpu: log every VRAM write and read (fills, uploads, copies, readbacks) */
+int psx_trace_gpu;
+
 /* per-frame statistics (debug overlay, perf.md) */
 unsigned int psx_gpu_packets, psx_gpu_words;
 
@@ -79,6 +82,9 @@ static u16 rgb15(int r, int g, int b) {
 }
 
 int LoadImage(RECT *r, u32 *p) {
+    if (psx_trace_gpu) {
+        port_log("gpu: LoadImage %d,%d %dx%d\n", r->x, r->y, r->w, r->h);
+    }
     if (!psx_vram) {
         return 0;
     }
@@ -92,6 +98,9 @@ int LoadImage(RECT *r, u32 *p) {
 }
 
 int StoreImage(RECT *r, u32 *p) {
+    if (psx_trace_gpu) {
+        port_log("gpu: StoreImage %d,%d %dx%d\n", r->x, r->y, r->w, r->h);
+    }
     if (!psx_vram) {
         return 0;
     }
@@ -105,11 +114,17 @@ int StoreImage(RECT *r, u32 *p) {
 }
 
 int MoveImage(RECT *r, int x, int y) {
+    if (psx_trace_gpu) {
+        port_log("gpu: MoveImage %d,%d %dx%d -> %d,%d\n", r->x, r->y, r->w, r->h, x, y);
+    }
     vram_copy(r->x, r->y, x, y, r->w, r->h);
     return 0;
 }
 
 void ClearImage(RECT *r, s32 cr, s32 cg, s32 cb) {
+    if (psx_trace_gpu) {
+        port_log("gpu: ClearImage %d,%d %dx%d rgb %ld,%ld,%ld\n", r->x, r->y, r->w, r->h, (long)cr, (long)cg, (long)cb);
+    }
     vram_fill(r->x, r->y, r->w, r->h, rgb15(cr, cg, cb));
 }
 
@@ -217,6 +232,11 @@ DISPENV *PutDispEnv(DISPENV *env) {
     return env;
 }
 
+/* the display area the game last set (PutDispEnv): what the TV shows */
+const DISPENV *psx_gpu_dispenv(void) {
+    return &disp_env;
+}
+
 void GetDrawEnv2(DR_ENV *p) {
     SetDrawEnv(p, &draw_env);
 }
@@ -319,7 +339,43 @@ u32 *ClearOTagR(u32 *ot, int n) {
 
 /* ---- drawing -------------------------------------------------------------------------------------------- */
 
-/* One packet: VRAM-affecting commands go to the shadow; everything goes to the renderer. */
+/* Words used by the GP0 command at w[0] (psx-spx "GPU Command Summary"); `avail` caps it. */
+unsigned int psx_gp0_len(const u32 *w, unsigned int avail) {
+    u32 cmd = w[0] >> 24;
+    unsigned int n = 1;
+    if (cmd >= 0x20 && cmd < 0x40) { /* polygon */
+        int gouraud = (cmd >> 4) & 1, nv = (cmd & 8) ? 4 : 3, tex = (cmd >> 2) & 1;
+        n = 1 + nv * (1 + tex) + (gouraud ? nv - 1 : 0);
+    } else if (cmd >= 0x40 && cmd < 0x60) { /* line / polyline (terminated by 0x5xxx5xxx) */
+        int gouraud = (cmd >> 4) & 1;
+        if (cmd & 8) {
+            n = 1;
+            while (n < avail && (w[n] & 0xF000F000) != 0x50005000) {
+                n++;
+            }
+            n++;
+        } else {
+            n = gouraud ? 4 : 3;
+        }
+    } else if (cmd >= 0x60 && cmd < 0x80) { /* rectangle */
+        n = 2 + ((cmd >> 2) & 1) + (((cmd >> 3) & 3) == 0);
+    } else if (cmd == 0x02) { /* fill */
+        n = 3;
+    } else if (cmd >= 0x80 && cmd < 0xA0) { /* VRAM to VRAM copy */
+        n = 4;
+    } else if (cmd >= 0xA0 && cmd < 0xC0) { /* CPU to VRAM: header + data */
+        n = 3;
+        if (avail >= 3) {
+            n += ((w[2] & 0xFFFF) * (w[2] >> 16) + 1) / 2;
+        }
+    } else if (cmd >= 0xC0 && cmd < 0xE0) { /* VRAM to CPU */
+        n = 3;
+    }
+    return n < avail ? n : avail;
+}
+
+/* One packet: walked command by command; VRAM fills and copies go to the shadow, everything goes to the
+ * renderer. */
 static void draw_packet(u32 *p) {
     unsigned int len = ((P_TAG *)p)->len;
     u32 *w = p + 1;
@@ -327,18 +383,25 @@ static void draw_packet(u32 *p) {
     psx_gpu_words += len;
     for (unsigned int i = 0; i < len;) {
         u32 cmd = w[i] >> 24;
-        if (cmd == 0x02 && i + 2 < len) { /* fill rectangle */
+        unsigned int n = psx_gp0_len(w + i, len - i);
+        if (cmd == 0x02 && n == 3) { /* fill rectangle */
             u32 c = w[i];
+            if (psx_trace_gpu) {
+                port_log("gpu: fill %d,%d %dx%d color %06X\n", (int)(w[i + 1] & 0x3F0), (int)((w[i + 1] >> 16) & 0x1FF),
+                         (int)(((w[i + 2] & 0x3FF) + 15) & ~15), (int)((w[i + 2] >> 16) & 0x1FF), (unsigned)(c & 0xFFFFFF));
+            }
             vram_fill(w[i + 1] & 0x3F0, (w[i + 1] >> 16) & 0x1FF, ((w[i + 2] & 0x3FF) + 15) & ~15,
                       (w[i + 2] >> 16) & 0x1FF, rgb15(c & 0xFF, (c >> 8) & 0xFF, (c >> 16) & 0xFF));
-            i += 3;
-        } else if (cmd == 0x80 && i + 3 < len) { /* VRAM to VRAM copy */
+        } else if (cmd >= 0x80 && cmd < 0xA0 && n == 4) { /* VRAM to VRAM copy */
+            if (psx_trace_gpu) {
+                port_log("gpu: copy %d,%d -> %d,%d %dx%d\n", (int)(w[i + 1] & 0x3FF), (int)((w[i + 1] >> 16) & 0x1FF),
+                         (int)(w[i + 2] & 0x3FF), (int)((w[i + 2] >> 16) & 0x1FF), (int)(w[i + 3] & 0x3FF),
+                         (int)((w[i + 3] >> 16) & 0x1FF));
+            }
             vram_copy(w[i + 1] & 0x3FF, (w[i + 1] >> 16) & 0x1FF, w[i + 2] & 0x3FF, (w[i + 2] >> 16) & 0x1FF,
                       w[i + 3] & 0x3FF, (w[i + 3] >> 16) & 0x1FF);
-            i += 4;
-        } else {
-            i++;
         }
+        i += n;
     }
     if (len) {
         psx_render_packet(w, len);

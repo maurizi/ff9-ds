@@ -32,3 +32,9 @@ src/ovl_0a/ovl_0a.c | func_8001C7FC(8, arg0, 0x120000) | PSX_NZ(func_8001C7FC(8,
 # objects without a sprite set (sprId -1) have unk50 == NULL; the per-frame update reads through it (zero on PS1:
 # the update is skipped)
 src/ovl_0a/ovl_0a.c | if (m->unk50->unk0 >= 2 && func_800AB0B0(m) == 0) { | if (PSX_NZ(m->unk50)->unk0 >= 2 && func_800AB0B0(m) == 0) { | 1
+
+# TEMPORARY until the decomp fixes it (reported 2026-10-11): defined void in ovl_0a but declared s32 in ff9.h and
+# used by script opcode 0x8F (retry while non-zero); $v0 carries func_800B31B8's result on MIPS. Without it the
+# opening scene's script retries forever.
+src/ovl_0a/ovl_0a.c | void func_800B2CC0(s32 arg0, s32 arg1, s32 arg2, s32 arg3) { | s32 func_800B2CC0(s32 arg0, s32 arg1, s32 arg2, s32 arg3) { | 1
+src/ovl_0a/ovl_0a.c | func_800B31B8((FieldEvtCtx *)func_8001E350(arg0), arg1, arg2, arg3); | return func_800B31B8((FieldEvtCtx *)func_8001E350(arg0), arg1, arg2, arg3); | 1
