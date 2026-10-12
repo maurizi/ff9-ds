@@ -16,7 +16,6 @@ s32 func_800AA0F4(u16, s32 *, s32 *);
 s32 func_800AA290(u16, s32 *, s32 *);
 u8 *func_800AFCBC(u8 *);
 FieldTrig *func_800B2100(FieldEvtCtx *, u16, s16);
-FieldTrig *func_800B21A0(FieldEvtCtx *, s16, s16);
 s32 func_800B2218(FieldEvtCtx *, u16, s16);
 Unk800B3294 *func_800B3294(Unk800B3254 *, u16);
 s32 *func_800B3CAC(s32);

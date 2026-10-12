@@ -9,8 +9,10 @@ discs (SLUS-01251/01295/01296/01297). The build extracts what it needs from the 
 the generated `ff9ds/` data folder contain Square Enix data. Never distribute or commit them.** Final Fantasy IX
 © Square Enix; this project is not affiliated with or endorsed by Square Enix.
 
-Status: **M0** (scaffold). All 20 binaries from the decomp compile for ARM and link into a DSi-mode `.nds`.
-Routines the port doesn't provide yet are stubs that stop with their name; `build/gen/stubs.txt` lists them.
+Status: **M1** (headless boot). All 20 binaries from the decomp compile for ARM (DSi `.nds`) and for a 32-bit
+Linux host build. On the host build the game boots, plays the opening and title, takes New Game and runs the first
+field (headless: no picture or sound yet). Routines the port doesn't provide yet are stubs that stop with their
+name (`build/<target>/stubs.txt`). `docs/porting-notes.md` lists the PS1 behaviours the C relies on.
 
 ## Building
 
@@ -21,6 +23,7 @@ Requires Docker, Python 3, and raw 2352-byte images of the four discs at `disks/
 git submodule update --init          # decomp/ (ff9-decomp)
 make extract                         # the decomp's extract + split, on your discs
 tools/docker.sh make -j16            # -> build/ff9ds.nds
+tools/docker.sh make -j16 pc         # -> build/pc/ff9ds (host build; --help for its options)
 ```
 
 `tools/docker.sh` runs the BlocksDS container (`skylyrac/blocksds:slim-v1.24.0` plus Python). The build never
@@ -33,3 +36,4 @@ writes game data outside `build/`.
 | [docs/roadmap.md](docs/roadmap.md) | milestones, exit criteria and risks |
 | [docs/decomp-requests.md](docs/decomp-requests.md) | what the port needs identified or written on the decomp side, by priority |
 | [docs/decisions.md](docs/decisions.md) | open decisions and the default each one has until decided |
+| [docs/porting-notes.md](docs/porting-notes.md) | PS1 behaviours the decomp's C relies on, and how the port handles each |

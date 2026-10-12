@@ -26,16 +26,20 @@ src/main/main.c | D_8007F790->unk44, | PSX_NZ(D_8007F790)->unk44, | 1
 # reads t->unk1 / t->unk4 regardless (ovl_0a func_800AAF5C and its two siblings)
 src/ovl_0a/ovl_0a.c | func_8001C7FC(8, arg0, 0x120000) | PSX_NZ(func_8001C7FC(8, arg0, 0x120000)) | 3
 
-# TEMPORARY until the decomp fixes it (requested 2026-10-11): defined void, but the caller uses its result (on MIPS
 # $v0 still holds func_80062E3C's return value). Without it the field heap pointer D_80067948 becomes 0.
-src/ovl_0a/ovl_0a.c | void func_800AD44C(s32 arg0, s32 arg1, s32 arg2, s32 arg3) { | s32 func_800AD44C(s32 arg0, s32 arg1, s32 arg2, s32 arg3) { | 1
-src/ovl_0a/ovl_0a.c |     func_80062E3C(arg0, 0x100, 0xFF, arg2, arg3, arg1, 3); |     return func_80062E3C(arg0, 0x100, 0xFF, arg2, arg3, arg1, 3); | 1
-src/main/main.c | void func_80055290(s32 a) { | s32 func_80055290(s32 a) { | 1
-src/main/main.c | akao_command(0x10); | return akao_command(0x10); | 1
-src/main/main.c | void func_800553BC(s32 a, s32 b) { | s32 func_800553BC(s32 a, s32 b) { | 1
-src/main/main.c | akao_command(0x12); | return akao_command(0x12); | 1
-src/main/main.c | void func_80062794(s32 a) { | s32 func_80062794(s32 a) { | 1
-src/main/main.c | func_8002BA68(func_8006276C(a)); | return func_8002BA68(func_8006276C(a)); | 1
-# returns the new trigger entry in $v0 (&sc->unk58[i]; checked in the original's asm at 0x800B21F4)
-src/ovl_0a/ovl_0a.c | void func_800B21A0(FieldEvtCtx *arg0, s16 arg1, s16 arg2) { | FieldTrig *func_800B21A0(FieldEvtCtx *arg0, s16 arg1, s16 arg2) { | 1
-src/ovl_0a/ovl_0a.c | e->unk2 = id; | e->unk2 = id; return e; | 1
+# Argument passed through in $a0: func_800AA3F4 is called with the actor id (ff9.h) but defined (void), and
+# hands its own $a0 on to func_800AAEF8(). Off MIPS the id is lost and field models never get queued.
+src/ovl_0a/ovl_0a.c | s32 func_800AA3F4(void) { | s32 func_800AA3F4(s32 arg0) { | 1
+src/ovl_0a/ovl_0a.c | id = func_800AAEF8(); | id = func_800AAEF8(arg0); | 1
+
+# Offset-or-pointer fields tested by sign: model data holds file offsets that are relocated to pointers in place,
+# and ">= 0" means "still an offset" because PS1 RAM pointers (0x80xxxxxx) are negative. DS pointers are positive,
+# so test against psx_ram instead. (Asked the decomp for an IS_OFFSET() macro at every such site.)
+src/ovl_0a/ovl_0a.c | if ((s32)g >= 0) { | if (PORT_IS_OFFSET(g)) { | 3
+src/ovl_0a/ovl_0a.c | if ((s32)g2 >= 0) { | if (PORT_IS_OFFSET(g2)) { | 1
+src/ovl_0a/ovl_0a.c | if (w != NULL && (s32)w->unkC >= 0) { | if (w != NULL && PORT_IS_OFFSET(w->unkC)) { | 1
+src/ovl_0a/ovl_0a.c | if (a->unkC >= 0) { | if (PORT_IS_OFFSET(a->unkC)) { | 1
+
+# objects without a sprite set (sprId -1) have unk50 == NULL; the per-frame update reads through it (zero on PS1:
+# the update is skipped)
+src/ovl_0a/ovl_0a.c | if (m->unk50->unk0 >= 2 && func_800AB0B0(m) == 0) { | if (PSX_NZ(m->unk50)->unk0 >= 2 && func_800AB0B0(m) == 0) { | 1
