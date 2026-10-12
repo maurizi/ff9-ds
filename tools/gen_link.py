@@ -308,7 +308,7 @@ def main():
                 '    .section .rodata.psx_tramp_names,"a"', f'{sym}_name: .asciz "{sym}"',
                 '    .section .text.psx_tramp,"ax"']
     (GEN / "tramp_arm.s").write_text("\n".join(arm + table(".4byte")) + "\n")
-    x86 += table(".long") + ['    .section .note.GNU-stack,"",@progbits']
+    x86 += table(".long")
     (GEN / "tramp_x86.s").write_text("\n".join(x86) + "\n")
 
     (GEN / "report.txt").write_text("".join(r + "\n" for r in sorted(set(report))))

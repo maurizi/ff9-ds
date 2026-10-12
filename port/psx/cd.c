@@ -9,10 +9,11 @@
  *
  * Disc layout: Mode 2 Form 1, user data at offset 24 of each raw sector. Disc swaps: TODO (M4).
  */
+#include "psyq_port.h"
+
 #include <stdio.h>
 
 #include "platform.h"
-#include "psyq_port.h"
 
 #define RAW_SECTOR 2352
 #define USER_OFFSET 24
@@ -60,6 +61,8 @@ static struct {
     u8 param[4];
 } queue[QUEUE];
 static int q_head, q_tail, pumping;
+/* debug snapshot for the platform's watchdog */
+unsigned int psx_cd_debug[6];
 static int last_com_done;
 
 /* ---- disc image ----------------------------------------------------------------------------------------- */
@@ -178,7 +181,8 @@ CdlFILE *CdSearchFile(CdlFILE *fp, char *name) {
     }
     CdIntToPos((int)lba, &fp->pos);
     fp->size = size;
-    __builtin_strncpy(fp->name, name, sizeof fp->name);
+    __builtin_strncpy(fp->name, name, sizeof fp->name - 1);
+    fp->name[sizeof fp->name - 1] = 0;
     return fp;
 }
 
@@ -242,6 +246,8 @@ static void result_status(u8 *result) {
 /* Execute one command now. Returns the interrupt it completes with (CdlComplete for the second-response
  * commands, CdlAcknowledge otherwise). */
 static int execute(u8 com, const u8 *param, u8 *result) {
+    psx_cd_debug[0] = com;
+    psx_cd_debug[1]++;
     if (param) {
         param = PSX_PTR(param);
     }
@@ -343,6 +349,8 @@ int CdControlB(u8 com, u8 *param, u8 *result) {
 }
 
 void psx_cd_pump(void) {
+    psx_cd_debug[4] = pumping | reading << 4 | (ready_cb != NULL) << 8 | (sync_cb != NULL) << 12;
+    psx_cd_debug[5] = (unsigned)(q_tail - q_head);
     if (pumping) {
         return;
     }
@@ -360,6 +368,8 @@ void psx_cd_pump(void) {
         if (reading && ready_cb && delivered < MAX_SECTORS_PER_PUMP) {
             sector_lba = read_lba;
             read_raw(read_lba++, sector);
+            psx_cd_debug[2]++;
+            psx_cd_debug[3] = sector_lba;
             sector_pos = 0;
             u8 r[8] = {status};
             ready_cb(CdlDataReady, r);

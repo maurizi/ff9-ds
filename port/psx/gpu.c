@@ -16,7 +16,9 @@
 #define VRAM_H 512
 #define OT_END 0xFFFFFF
 
-u16 psx_vram[VRAM_W * VRAM_H];
+/* Allocated by psx_mem_init: 1 MB doesn't fit a 4 MB DS next to everything else, so there it stays NULL and VRAM
+ * operations are skipped (a headless run that still exercises the game logic). */
+u16 *psx_vram;
 
 static DRAWENV draw_env;
 static DISPENV disp_env;
@@ -46,6 +48,9 @@ static inline u16 *vram_at(int x, int y) {
 }
 
 static void vram_fill(int x, int y, int w, int h, u16 c) {
+    if (!psx_vram) {
+        return;
+    }
     for (int j = 0; j < h; j++) {
         for (int i = 0; i < w; i++) {
             *vram_at(x + i, y + j) = c;
@@ -54,6 +59,9 @@ static void vram_fill(int x, int y, int w, int h, u16 c) {
 }
 
 static void vram_copy(int sx, int sy, int dx, int dy, int w, int h) {
+    if (!psx_vram) {
+        return;
+    }
     /* row buffer: overlapping copies behave as the GPU's line-by-line copy */
     static u16 row[VRAM_W];
     for (int j = 0; j < h; j++) {
@@ -71,6 +79,9 @@ static u16 rgb15(int r, int g, int b) {
 }
 
 int LoadImage(RECT *r, u32 *p) {
+    if (!psx_vram) {
+        return 0;
+    }
     const u16 *src = (const u16 *)p;
     for (int j = 0; j < r->h; j++) {
         for (int i = 0; i < r->w; i++) {
@@ -81,6 +92,9 @@ int LoadImage(RECT *r, u32 *p) {
 }
 
 int StoreImage(RECT *r, u32 *p) {
+    if (!psx_vram) {
+        return 0;
+    }
     u16 *dst = (u16 *)p;
     for (int j = 0; j < r->h; j++) {
         for (int i = 0; i < r->w; i++) {

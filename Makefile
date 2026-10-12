@@ -6,6 +6,7 @@
 #   make pc           build/pc/ff9ds      32-bit Linux host build of the same game code and port/psx layer:
 #                                         fast iteration, gdb, lockstep comparison with PCSX-Redux
 #   AUTORUN=1         DS: run the game straight away instead of waiting for START
+#   AUTOPRESS="..."   DS: scripted presses, as the PC's --press ("CROSS@2500,UP@2900+3")
 
 DECOMP   := decomp
 VERSION  := us
@@ -44,7 +45,7 @@ PORT_CFLAGS   := -std=gnu17 -O2 -g -fno-strict-aliasing -Wall -Wextra -Wno-unuse
 # port/game/ includes the decomp's headers, whose inline helpers call functions declared only for other binaries
 GAME_CFLAGS   := -Wno-error=implicit-function-declaration -Wno-implicit-function-declaration
 
-.PHONY: all ds pc decomp-objs extract clean
+.PHONY: all ds ds-r4 pc decomp-objs extract clean
 .SECONDARY:
 
 all: ds
@@ -122,7 +123,8 @@ endef
 # DS: BlocksDS, DSi-mode memory map, Thumb.
 SPECS    := $(BLOCKSDS)/sys/crts/dsi_arm9.specs
 DS_ARCH  := -mcpu=arm946e-s -mthumb -mthumb-interwork
-PORT_EXTRA_ds := -specs=$(SPECS) -I$(BLOCKSDS)/libs/libnds/include $(if $(AUTORUN),-DPORT_AUTORUN)
+PORT_EXTRA_ds := -specs=$(SPECS) -I$(BLOCKSDS)/libs/libnds/include $(if $(AUTORUN),-DPORT_AUTORUN) \
+                 $(if $(AUTOPRESS),-DPORT_AUTOPRESS='"$(AUTOPRESS)"')
 $(eval $(call target_rules,ds,arm-none-eabi-gcc,arm-none-eabi-objcopy,$(DS_ARCH),ds,arm,\
 	-specs=$(SPECS) -L$(BLOCKSDS)/libs/libnds/lib -Wl$(,)--gc-sections,-lnds9 -lc))
 
@@ -130,13 +132,20 @@ $(eval $(call target_rules,ds,arm-none-eabi-gcc,arm-none-eabi-objcopy,$(DS_ARCH)
 # ARM/MIPS. psx_ram is placed with --defsym and mapped by port/pc before anything runs.
 PC_ARCH  := -m32 -malign-double -fno-pie
 PORT_EXTRA_pc :=
-$(eval $(call target_rules,pc,gcc,objcopy,$(PC_ARCH),pc,x86,-no-pie -Wl$(,)--defsym=psx_ram=0x02000000,-lm))
+$(eval $(call target_rules,pc,gcc,objcopy,$(PC_ARCH),pc,x86,-no-pie -Wl$(,)-z$(,)noexecstack -Wl$(,)--defsym=psx_ram=0x02000000,-lm))
 
 ARM7ELF  := $(BLOCKSDS)/sys/arm7/main_core/arm7_minimal.elf
 NDSTOOL  := $(BLOCKSDS)/tools/ndstool/ndstool
 
 ds: $(BUILD)/ff9ds.nds
 pc: $(BUILD)/pc/ff9ds
+
+# The ROM patched with the R4 DLDI driver, for DeSmuME's emulated R4 flashcart (--slot1=r4 --slot1-fat-dir=DIR),
+# so the game can read ff9ds/ from a host directory.
+ds-r4: $(BUILD)/ff9ds_r4.nds
+$(BUILD)/ff9ds_r4.nds: $(BUILD)/ff9ds.nds
+	@cp $< $@
+	@$(BLOCKSDS)/tools/dlditool/dlditool $(BLOCKSDS)/sys/dldi_r4/r4tf.dldi $@ > /dev/null
 
 $(BUILD)/ff9ds.nds: $(BUILD)/ds/ff9ds.elf
 	@echo "NDS  $@"

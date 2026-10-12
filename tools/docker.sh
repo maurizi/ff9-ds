@@ -21,6 +21,9 @@ if [ -L "$ROOT/disks" ]; then
     MOUNTS+=(-v "$TARGET:$TARGET:ro")
 fi
 
+# Extra docker arguments, e.g. FF9DS_DOCKER_ARGS="--network host" to reach DeSmuME's GDB stub.
+read -r -a EXTRA <<< "${FF9DS_DOCKER_ARGS:-}"
+
 # Cap memory so a runaway job cannot take down the host.
 exec docker run --rm --init --memory=8g --memory-swap=8g "${TTY[@]}" -u "$(id -u):$(id -g)" \
-    "${MOUNTS[@]}" -w /ff9ds "$IMAGE:$HASH" "${@:-bash}"
+    "${MOUNTS[@]}" "${EXTRA[@]}" -w /ff9ds "$IMAGE:$HASH" "${@:-bash}"

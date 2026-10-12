@@ -29,3 +29,16 @@ tools/docker.sh tools/pcdebug.sh <same args>                       # crash: faul
 ```
 Most crashes so far were found by following the bad value back with gdb watchpoints (`watch -l`) on PS1 globals,
 which are ordinary symbols in the port.
+
+## Running the DS build in an emulator
+- **melonDS** (Flatpak `net.kuribo64.melonDS`): `flatpak run net.kuribo64.melonDS build/ff9ds.nds`. Config in
+  `~/.var/app/net.kuribo64.melonDS/config/melonDS/melonDS.toml`; DLDI with folder sync onto `build/sdroot/` (which
+  holds `ff9ds/raw/FF9 CD1.img`, a link to the disc image) gives the ROM its SD card. Use dotted keys
+  (`[Gdb]` `ARM9.BreakOnStartup = ...`): melonDS can't save `[Gdb]` + `[Gdb.ARM9]` table pairs and crashes on exit.
+  The Flathub build has no GDB stub.
+- **DS mode (4 MB)** runs the game logic without the VRAM/SPU shadows. It is only good up to the first overlay the
+  game restores from its VRAM cache (`func_80012900` after New Game), so field testing needs **DSi mode**: melonDS
+  with DSi BIOS/firmware/NAND dumps from your own console, or real hardware.
+- DeSmuME: no DSi mode, and its R4 slot-1 emulation stalls on this ROM; not used.
+- `make ds AUTORUN=1 AUTOPRESS="CROSS@2500,UP@2900+3,CROSS@3000+3"` runs the title-to-New-Game script with no input.
+  The status line at the bottom of the console shows frame, mode, overlays and libcd state.

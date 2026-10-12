@@ -10,7 +10,7 @@
 
 #define SPU_RAM 0x80000
 
-u8 psx_spu_ram[SPU_RAM];
+u8 *psx_spu_ram; /* allocated by psx_mem_init (NULL on a 4 MB DS: transfers are dropped) */
 
 static u32 transfer_addr;
 static void (*transfer_cb)(void);
@@ -21,7 +21,9 @@ static SpuReverbAttr reverb_attr;
 
 void SpuInit(void) {
     __builtin_memset(psx_spu_regs, 0, 0x400);
-    __builtin_memset(psx_spu_ram, 0, SPU_RAM);
+    if (psx_spu_ram) {
+        __builtin_memset(psx_spu_ram, 0, SPU_RAM);
+    }
     transfer_addr = 0;
     transfer_cb = NULL;
 }
@@ -62,7 +64,9 @@ u32 func_8005709C(u8 *addr, u32 size) {
     if (transfer_addr + size > SPU_RAM) {
         size = SPU_RAM - transfer_addr;
     }
-    __builtin_memcpy(psx_spu_ram + transfer_addr, addr, size);
+    if (psx_spu_ram) {
+        __builtin_memcpy(psx_spu_ram + transfer_addr, addr, size);
+    }
     if (transfer_cb) {
         transfer_cb();
     }
@@ -75,7 +79,9 @@ s32 func_8005703C(s32 addr, s32 size) {
     if (transfer_addr + n > SPU_RAM) {
         n = SPU_RAM - transfer_addr;
     }
-    __builtin_memcpy((void *)addr, psx_spu_ram + transfer_addr, n);
+    if (psx_spu_ram) {
+        __builtin_memcpy((void *)addr, psx_spu_ram + transfer_addr, n);
+    }
     if (transfer_cb) {
         transfer_cb();
     }

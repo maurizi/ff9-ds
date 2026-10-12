@@ -1,4 +1,5 @@
 /* The PS1 address space: psx_ram (see psx_mem.h), the scratchpad, the SPU register file, and the data images. */
+#include <stdlib.h>
 #include <string.h>
 
 #include "psx_mem.h"
@@ -39,7 +40,23 @@ int psx_overlay_load(unsigned int id) {
 
 void func_800127A0(void); /* the game's main loop (decomp src/main/main.c) */
 
+extern unsigned short *psx_vram;
+extern unsigned char *psx_spu_ram;
+
+/* The VRAM and SPU RAM shadows (1.5 MB): allocated, so a 4 MB DS can still run the game logic without them. */
+static void psx_mem_init(void) {
+    psx_vram = malloc(1024 * 512 * 2);
+    psx_spu_ram = malloc(0x80000);
+    if (!psx_vram || !psx_spu_ram) {
+        port_log("no room for the VRAM/SPU shadows: running without graphics and sound memory\n");
+    }
+    if (psx_vram) {
+        memset(psx_vram, 0, 1024 * 512 * 2);
+    }
+}
+
 void psx_run_game(void) {
+    psx_mem_init();
     psx_load_image(psximg_main);
     func_800127A0();
     port_fatal("the game's main loop returned");
