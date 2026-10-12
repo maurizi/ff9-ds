@@ -27,18 +27,7 @@ src/main/main.c | D_8007F790->unk44, | PSX_NZ(D_8007F790)->unk44, | 1
 src/ovl_0a/ovl_0a.c | func_8001C7FC(8, arg0, 0x120000) | PSX_NZ(func_8001C7FC(8, arg0, 0x120000)) | 3
 
 # $v0 still holds func_80062E3C's return value). Without it the field heap pointer D_80067948 becomes 0.
-# Argument passed through in $a0: func_800AA3F4 is called with the actor id (ff9.h) but defined (void), and
-# hands its own $a0 on to func_800AAEF8(). Off MIPS the id is lost and field models never get queued.
-src/ovl_0a/ovl_0a.c | s32 func_800AA3F4(void) { | s32 func_800AA3F4(s32 arg0) { | 1
-src/ovl_0a/ovl_0a.c | id = func_800AAEF8(); | id = func_800AAEF8(arg0); | 1
 
-# Offset-or-pointer fields tested by sign: model data holds file offsets that are relocated to pointers in place,
-# and ">= 0" means "still an offset" because PS1 RAM pointers (0x80xxxxxx) are negative. DS pointers are positive,
-# so test against psx_ram instead. (Asked the decomp for an IS_OFFSET() macro at every such site.)
-src/ovl_0a/ovl_0a.c | if ((s32)g >= 0) { | if (PORT_IS_OFFSET(g)) { | 3
-src/ovl_0a/ovl_0a.c | if ((s32)g2 >= 0) { | if (PORT_IS_OFFSET(g2)) { | 1
-src/ovl_0a/ovl_0a.c | if (w != NULL && (s32)w->unkC >= 0) { | if (w != NULL && PORT_IS_OFFSET(w->unkC)) { | 1
-src/ovl_0a/ovl_0a.c | if (a->unkC >= 0) { | if (PORT_IS_OFFSET(a->unkC)) { | 1
 
 # objects without a sprite set (sprId -1) have unk50 == NULL; the per-frame update reads through it (zero on PS1:
 # the update is skipped)

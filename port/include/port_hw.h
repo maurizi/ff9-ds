@@ -265,8 +265,14 @@ void port_ldrotkey_lo(const void *key, const void *anim, s32 frame, void *rot);
 #define PORT_SCRIPT_PTR(v) ((u32)(v) & 0x03FFFFFF)
 /* "Is this a RAM pointer (not a file offset)?" where the PS1 tests > 0x80000000 (config/patches.txt). */
 #define PORT_IS_RAM_PTR(p) ((u32)(p) >= (u32)psx_ram && (u32)(p) < (u32)psx_ram + PSX_RAM_SIZE)
-/* "Is this offset-or-pointer field still an offset?" where the PS1 tests (s32)x >= 0 (config/patches.txt). */
-#define PORT_IS_OFFSET(x) ((s32)(x) >= 0 && !PORT_IS_RAM_PTR(x))
+/* The decomp's hooks for PS1-only idioms (ff9.h; defaults reproduce the PS1):
+ * IS_OFFSET(x): "is this offset-or-pointer field still a file offset?" The PS1 tests the sign (RAM pointers are
+ * 0x80xxxxxx); DS pointers are positive, so test for "not a pointer into psx_ram".
+ * REG_PASSTHROUGH(x): an argument the PS1 code passes on in its register without naming it. */
+#undef IS_OFFSET
+#define IS_OFFSET(x) ((s32)(x) >= 0 && !PORT_IS_RAM_PTR(x))
+#undef REG_PASSTHROUGH
+#define REG_PASSTHROUGH(x) x
 
 /* ---- SPU registers: the emulated register file (port/psx/spu.c) ---------------------------------------- */
 /* SPU_REG16(a) keeps the decomp's definition: tools/portify.py already wraps its 0x1F80xxxx argument in PSX_HW. */
