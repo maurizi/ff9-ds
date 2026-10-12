@@ -39,7 +39,7 @@ def apply_patches(src, text):
     return text
 
 PAD = re.compile(r'__asm__\("(?:\.section \.rodata|\.rdata)[^"]*"\);')
-HW = re.compile(r'(?<![\w(])0x1F80[0-9A-Fa-f]{4}\b')
+HW = re.compile(r'(?<!PSX_HW\()\b0x1F80[0-9A-Fa-f]{4}\b')
 CAST_RAM = re.compile(r'(\(\s*[A-Za-z_][\w\s]*\*+\s*\)\s*\(?\s*)(0x80[0-9A-Fa-f]{6})\b')
 RAM = re.compile(r'\b0x80[0-9A-Fa-f]{6}\b')
 

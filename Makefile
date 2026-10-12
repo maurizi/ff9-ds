@@ -82,12 +82,14 @@ $$($(1)_DIR)/obj/%.o: $(BUILD)/portified/%.c $(PORT_HDRS)
 		  echo "" | $(2) $(4) -x c -c - -o $$@; })
 
 # src_equiv/ is weakened first, so a matched src/ definition of the same function always wins; then overlay
-# functions get their namespace prefix and cross-binary references are pointed at the right overlay.
-$$($(1)_DIR)/nsobj/%.o: $$($(1)_DIR)/obj/%.o $(GEN)/stamp
+# functions get their namespace prefix and cross-binary references are pointed at the right overlay; last, the
+# functions the port replaces (config/overrides.txt) are weakened.
+$$($(1)_DIR)/nsobj/%.o: $$($(1)_DIR)/obj/%.o $(GEN)/stamp config/overrides.txt
 	@mkdir -p $$(dir $$@)
 	@$(3) $$(if $$(call weak_src,$$*),--weaken) $$< $$@.tmp
-	@$(3) --redefine-syms=$(GEN)/redefine_$$(call bin_of,$$*).txt $$@.tmp $$@
-	@rm -f $$@.tmp
+	@$(3) --redefine-syms=$(GEN)/redefine_$$(call bin_of,$$*).txt $$@.tmp $$@.tmp2
+	@$(3) --weaken-symbols=config/overrides.txt $$@.tmp2 $$@
+	@rm -f $$@.tmp $$@.tmp2
 
 $$($(1)_DIR)/gen/%.o: $(GEN)/%.s
 	@mkdir -p $$(dir $$@)

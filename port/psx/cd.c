@@ -39,11 +39,19 @@ static CdCallback sync_cb, ready_cb, read_cb;
 
 static FILE *disc;
 static int disc_no = 1;
+
+/* libcd's own globals, which game C reads directly (func_80021310 CdStatus, func_80021320 CdMode, CdLastPos):
+ * kept in PS1 RAM at their original addresses so those reads see the drive's state. */
+extern u8 D_8006825C;      /* status byte */
+extern s32 D_8006826C;     /* mode */
+extern u8 D_80068268[4];   /* last position (CdlLOC) */
+#define status D_8006825C
+#define mode D_8006826C
+#define last_pos D_80068268
 static unsigned int loc, read_lba; /* Setloc target, next sector to deliver */
 static int reading;
-static u8 mode;
-static u8 status = STAT_MOTOR;
 static u8 sector[RAW_SECTOR];
+static unsigned int sector_lba; /* LBA of `sector` */
 static unsigned int sector_pos; /* bytes of `sector`'s user data already taken by CdGetSector */
 
 #define QUEUE 16
@@ -52,6 +60,7 @@ static struct {
     u8 param[4];
 } queue[QUEUE];
 static int q_head, q_tail, pumping;
+static int last_com_done;
 
 /* ---- disc image ----------------------------------------------------------------------------------------- */
 
@@ -173,6 +182,55 @@ CdlFILE *CdSearchFile(CdlFILE *fp, char *name) {
     return fp;
 }
 
+/* ---- FF9.IMG code overlays ------------------------------------------------------------------------------
+ * Directory 0 of FF9.IMG holds the code overlays (docs/ff9img.md in the decomp). When their sectors are copied to
+ * the overlay's slot, the relocated data image is put back over them (psx_overlay_patch). */
+#define MAX_CODE_FILES 32
+static struct {
+    unsigned int lba, end, id;
+} code_files[MAX_CODE_FILES];
+static int n_code_files = -1;
+
+static void scan_ff9img(void) {
+    unsigned int base, size;
+    u8 hdr[2048], tbl[2048];
+    n_code_files = 0;
+    if (!iso_lookup("\\FF9.IMG;1", &base, &size)) {
+        return;
+    }
+    read_user(base, hdr);
+    if (__builtin_memcmp(hdr, "FF9 ", 4) != 0) {
+        return;
+    }
+    /* directory list at +0x10: {type, count, dir_id, first_sector}; dir 0 is the first entry */
+    unsigned int type = le32(hdr + 0x10), count = le32(hdr + 0x14);
+    if (type != 2 || count > MAX_CODE_FILES) {
+        return;
+    }
+    /* file tables are packed from FF9.IMG sector 1, dir 0's first: {file_id, sector} pairs, then {-1, end} */
+    read_user(base + 1, tbl);
+    for (unsigned int i = 0; i < count && i * 8 + 12 < 2048; i++) {
+        code_files[i].id = le32(tbl + i * 8);
+        code_files[i].lba = base + le32(tbl + i * 8 + 4);
+        code_files[i].end = base + le32(tbl + i * 8 + 12);
+    }
+    n_code_files = (int)count;
+}
+
+/* The code overlay `lba` belongs to, and the sector's offset in that file (bytes); 0 if none. */
+static unsigned int code_file_of(unsigned int lba, unsigned int *file_off) {
+    if (n_code_files < 0) {
+        scan_ff9img();
+    }
+    for (int i = 0; i < n_code_files; i++) {
+        if (lba >= code_files[i].lba && lba < code_files[i].end) {
+            *file_off = (lba - code_files[i].lba) * 2048;
+            return code_files[i].id;
+        }
+    }
+    return 0;
+}
+
 /* ---- commands ------------------------------------------------------------------------------------------- */
 
 static void result_status(u8 *result) {
@@ -201,6 +259,7 @@ static int execute(u8 com, const u8 *param, u8 *result) {
     case CdlReadN:
     case CdlReadS:
         read_lba = loc;
+        CdIntToPos((int)loc, (CdlLOC *)last_pos);
         reading = 1;
         status = STAT_MOTOR | STAT_READ;
         break;
@@ -237,9 +296,13 @@ static int execute(u8 com, const u8 *param, u8 *result) {
     return CdlAcknowledge;
 }
 
+/* libcd calls the sync callback with CdlComplete when a command finishes: on its second response for the
+ * two-stage commands (seek, pause, stop, init), on the acknowledge for the others (Setloc, Setmode, ReadN, ...).
+ * The game's CD state machine advances on exactly these. */
 static void complete(int intr, u8 *result) {
     u8 r[8] = {status};
-    if (intr == CdlComplete && sync_cb) {
+    last_com_done = 1;
+    if (sync_cb) {
         sync_cb(CdlComplete, result ? result : r);
     }
 }
@@ -295,6 +358,7 @@ void psx_cd_pump(void) {
             continue;
         }
         if (reading && ready_cb && delivered < MAX_SECTORS_PER_PUMP) {
+            sector_lba = read_lba;
             read_raw(read_lba++, sector);
             sector_pos = 0;
             u8 r[8] = {status};
@@ -313,6 +377,18 @@ int CD_getsector(void *madr, int size) {
     unsigned int bytes = (unsigned int)size * 4;
     unsigned int base = (mode & 0x20) ? 12 : USER_OFFSET; /* CdlModeSize1: 2340-byte sectors from the header */
     __builtin_memcpy(madr, sector + base + sector_pos, bytes);
+    /* user data of a code overlay landing at that overlay's slot: put the relocated image back over it */
+    unsigned int file_off, id;
+    if (base + sector_pos >= USER_OFFSET && (id = code_file_of(sector_lba, &file_off)) != 0) {
+        static const unsigned int slots[] = PSX_OVL_SLOT_ADDRS;
+        unsigned int off = (u32)madr - (u32)psx_ram;
+        unsigned int at = file_off + (base + sector_pos - USER_OFFSET);
+        for (unsigned int k = 0; k < 3; k++) {
+            if (off < PSX_RAM_SIZE && off == ((slots[k] + at) & (PSX_RAM_SIZE - 1))) {
+                psx_overlay_patch(id, off, bytes);
+            }
+        }
+    }
     sector_pos += bytes;
     return 0;
 }
@@ -341,8 +417,26 @@ CdCallback func_800236A4(CdCallback f) {
     return old;
 }
 
+/* CdLastPos, CdFlush, CdReady (decomp placeholders func_80021330 ... func_80021360); CdStatus and CdMode are
+ * matched C in the decomp and read the globals above. */
+u8 *func_80021330(void) {
+    return last_pos;
+}
+
+void func_80021340(void) {
+}
+
+/* CdReady(mode, result): a sector is waiting (CdlDataReady) or not (CdlNoIntr). Sectors are delivered through
+ * the ready callback, so a polling caller gets the pump. */
+s32 func_80021360(s32 m, u8 *result) {
+    psx_cd_pump();
+    result_status(result);
+    return CdlNoIntr;
+}
+
 int CdInit(void) {
     open_disc();
+    status = STAT_MOTOR;
     return 1;
 }
 

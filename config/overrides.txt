@@ -1,0 +1,10 @@
+# Decomp functions the port replaces (port/game/): weakened in the decomp objects after overlay namespacing, so the
+# port's definition wins. Names as linked (overlay functions carry their oXX_ prefix).
+
+# ovl_64: the MBG / FMV player (MBG_init ...). Replaced by port/game/movie.c, which drives the DS movie player
+# (FastVideoDS, M4); until then movies end immediately.
+o64_func_801999B4
+o64_func_80199B28
+o64_func_80199F30
+o64_func_8019AD0C
+o64_func_8019AAF8

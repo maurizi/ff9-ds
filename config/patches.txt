@@ -13,3 +13,11 @@ src/main/main.c | o = (Unk8004AB64 *)func_80052D40(); | o = (Unk8004AB64 *)PORT_
 # in the port it's an address inside psx_ram.
 src/ovl_0a/ovl_0a.c | if (p > 0x80000000) { | if (PORT_IS_RAM_PTR(p)) { | 1
 src/ovl_0b/ovl_0b_3.c | if ((u32)f > 0x80000000) { | if (PORT_IS_RAM_PTR(f)) { | 1
+
+
+# Reads through a NULL pointer: on the PS1 they read low kernel RAM instead of faulting. PSX_NZ maps NULL to the
+# start of psx_ram (zeros), as the closest stand-in.
+# akao_tick -> func_800589F0 with D_8007F790 == NULL (the AKAO init leaves it NULL) and flag 0x100 set
+src/main/main.c | D_8007F790->unk3C, | PSX_NZ(D_8007F790)->unk3C, | 1
+src/main/main.c | D_8007F790->unk40, | PSX_NZ(D_8007F790)->unk40, | 1
+src/main/main.c | D_8007F790->unk44, | PSX_NZ(D_8007F790)->unk44, | 1

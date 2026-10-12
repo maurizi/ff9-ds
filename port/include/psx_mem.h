@@ -25,6 +25,9 @@ extern unsigned short psx_spu_regs[0x200];
  * func_80022A28), which on the PS1 reads that physical address. Map such values into psx_ram. */
 #define PSX_PTR(p) ((unsigned int)(p) < PSX_RAM_SIZE ? (void *)(psx_ram + (unsigned int)(p)) : (void *)(p))
 
+/* A pointer the game may read through while it is NULL (config/patches.txt): the PS1 reads low RAM there. */
+#define PSX_NZ(p) ((p) ? (p) : (__typeof__(p))(void *)psx_ram)
+
 /* 0x1F80xxxx hardware address -> scratchpad or SPU register file (anything else traps in psx_hw_bad). */
 unsigned int psx_hw_bad(unsigned int a);
 #define PSX_HW(a) \

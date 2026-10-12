@@ -44,3 +44,24 @@ void psx_run_game(void) {
     func_800127A0();
     port_fatal("the game's main loop returned");
 }
+
+/* Raw overlay bytes from the disc just landed in psx_ram at arena offset `off` (length `len`), and they are
+ * overlay `id`'s file bytes at its slot. Overwrite them with the relocated image where the two overlap
+ * (rodata/data: pointers fixed up for the port; code bytes stay raw and are never executed), and mark the
+ * overlay resident. Called from libcd for every sector of a dir-0 code file. */
+void psx_overlay_patch(unsigned int id, unsigned int off, unsigned int len) {
+    for (const PsxOverlay *o = psx_overlays; o->image != NULL; o++) {
+        if (o->id != id) {
+            continue;
+        }
+        psx_ovl_resident[o->slot] = (unsigned char)id;
+        for (const PsxImageChunk *c = o->image; c->size; c++) {
+            unsigned int lo = off > c->offset ? off : c->offset;
+            unsigned int hi = off + len < c->offset + c->size ? off + len : c->offset + c->size;
+            if (lo < hi) {
+                memcpy(psx_ram + lo, (const unsigned char *)c->data + (lo - c->offset), hi - lo);
+            }
+        }
+        return;
+    }
+}

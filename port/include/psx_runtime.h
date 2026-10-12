@@ -22,6 +22,10 @@ extern const PsxOverlay psx_overlays[];
 
 /* "Load" code overlay `id`: copy its data image into its slot and mark it resident (0 if `id` isn't code). */
 int psx_overlay_load(unsigned int id);
+void psx_overlay_patch(unsigned int id, unsigned int off, unsigned int len);
+
+/* Load addresses of the code overlay slots (index = PsxOverlay.slot). */
+#define PSX_OVL_SLOT_ADDRS {0x800A7000, 0x801EDF00, 0x80198700}
 extern unsigned char psx_ovl_resident[3];
 
 void psx_load_image(const PsxImageChunk *img);

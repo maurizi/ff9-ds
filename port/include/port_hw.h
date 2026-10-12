@@ -207,6 +207,15 @@
 #undef gte_gpl12
 #define gte_gpl12() GTE_CMD(0x4BA8003E)
 
+/* hooks the decomp's src_equiv.h leaves to the port (its defaults are MIPS) */
+#define gte_ldrgbc(v) gte_mtc2(6, (u32)(v))
+#define gte_strgb2(r) ((r) = gte_mfc2(22))
+#define gte_dpcl() GTE_CMD(0x4A680029)
+#define gte_nct() GTE_CMD(0x4AD80420)
+#define gte_dpcs() GTE_CMD(0x4A780010)
+#define gte_strgb3(r0) do { void *_p = (r0); GTE_SWC2(20, _p, 0); GTE_SWC2(21, _p, 4); GTE_SWC2(22, _p, 8); } while (0)
+#define SCRATCHPAD ((u8 *)psx_scratchpad)
+
 /* depth-cue rgb toward the far colour by (0x1000 - p): FC = 0, then DPCS (sf=1) on the colour at rgb */
 #undef gte_DpqColorFar_nst
 #define gte_DpqColorFar_nst(rgb, p) do { \

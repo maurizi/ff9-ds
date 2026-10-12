@@ -1,4 +1,5 @@
 /* DS platform: entry point, console, frame pacing. */
+#include <fat.h>
 #include <nds.h>
 #include <stdio.h>
 
@@ -22,14 +23,23 @@ void plat_halt(void) {
     }
 }
 
+/* ff9ds/ at the root of the boot drive: the DSi's SD card ("sd:"), or a DS flashcart via DLDI ("fat:"). */
+static char data_dir[32] = "fat:/ff9ds";
+
 const char *plat_data_dir(void) {
-    return "sd:/ff9ds";
+    return data_dir;
 }
 
 int main(void) {
     consoleDemoInit();
     printf("ff9-ds (%s mode)\n", isDSiMode() ? "DSi" : "DS");
     printf("psx_ram %p\n", (void *)psx_ram);
+    if (!fatInitDefault()) {
+        printf("no SD card / flashcart filesystem\n");
+    } else {
+        snprintf(data_dir, sizeof data_dir, "%sff9ds", fatGetDefaultDrive());
+    }
+    printf("data: %s\n", data_dir);
 #ifndef PORT_AUTORUN /* `make AUTORUN=1`: run straight away, for automated emulator checks */
     printf("START: run the game\n");
     do {
