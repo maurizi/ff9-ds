@@ -41,6 +41,9 @@ DECOMP_CFLAGS := -std=gnu89 -fpermissive -O2 -g -fsigned-char -fno-strict-aliasi
 PORT_CFLAGS   := -std=gnu17 -O2 -g -fno-strict-aliasing -Wall -Wextra -Wno-unused-parameter -Wno-builtin-declaration-mismatch -ffunction-sections -fdata-sections \
                  -Iport/include -I$(DECOMP)/include
 
+# port/game/ includes the decomp's headers, whose inline helpers call functions declared only for other binaries
+GAME_CFLAGS   := -Wno-error=implicit-function-declaration -Wno-implicit-function-declaration
+
 .PHONY: all ds pc decomp-objs extract clean
 .SECONDARY:
 
@@ -98,7 +101,7 @@ $$($(1)_DIR)/gen/%.o: $(GEN)/%.s
 $$($(1)_DIR)/port/%.o: port/%.c $(PORT_HDRS)
 	@mkdir -p $$(dir $$@)
 	@echo "CC   [$(1)] port/$$*"
-	@$(2) $(4) $(PORT_CFLAGS) $$(PORT_EXTRA_$(1)) -c $$< -o $$@
+	@$(2) $(4) $(PORT_CFLAGS) $$(PORT_EXTRA_$(1)) $$(if $$(filter game/%,$$*),$(GAME_CFLAGS)) -c $$< -o $$@
 
 # Two-phase link: the first pass lists what is still undefined; gen_stubs.py turns those into stubs that stop
 # with their name (the to-do list is $$($(1)_DIR)/stubs.txt).
