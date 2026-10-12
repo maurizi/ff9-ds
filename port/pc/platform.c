@@ -114,6 +114,9 @@ void plat_halt(void) {
     exit(2);
 }
 
+void plat_video_init(void) {
+}
+
 const char *plat_data_dir(void) {
     return data_dir;
 }

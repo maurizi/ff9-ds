@@ -3,6 +3,7 @@
 #include <string.h>
 
 #include "psx_mem.h"
+#include "platform.h"
 #include "psx_runtime.h"
 
 /* psx_ram itself is defined by the platform: a bss array on the DS, a fixed mapping at 0x02000000 on the PC. */
@@ -57,6 +58,7 @@ static void psx_mem_init(void) {
 
 void psx_run_game(void) {
     psx_mem_init();
+    plat_video_init();
     psx_load_image(psximg_main);
     func_800127A0();
     port_fatal("the game's main loop returned");

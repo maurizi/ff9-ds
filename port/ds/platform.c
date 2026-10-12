@@ -3,6 +3,7 @@
 #include <nds.h>
 #include <stdio.h>
 
+#include "display.h"
 #include "input_script.h"
 #include "platform.h"
 #include "psx_mem.h"
@@ -20,6 +21,7 @@ extern unsigned char *g_gameState; /* PS1 0x8006794C: GameState * */
 
 void plat_wait_frame(void) {
     swiWaitForVBlank();
+    display_present();
     frames++;
     if (frames % 30 == 0) {
         unsigned char *gs = g_gameState;
@@ -68,12 +70,19 @@ void plat_halt(void) {
 /* ff9ds/ at the root of the boot drive: the DSi's SD card ("sd:"), or a DS flashcart via DLDI ("fat:"). */
 static char data_dir[32] = "fat:/ff9ds";
 
+void plat_video_init(void) {
+    display_init();
+}
+
 const char *plat_data_dir(void) {
     return data_dir;
 }
 
 int main(void) {
     consoleDemoInit();
+    if (isDSiMode()) {
+        setCpuClock(true); /* the DSi's 134 MHz ARM9 (BlocksDS leaves it at 67 MHz) */
+    }
     printf("ff9-ds (%s mode)\n", isDSiMode() ? "DSi" : "DS");
     printf("psx_ram %p\n", (void *)psx_ram);
     if (!fatInitDefault()) {

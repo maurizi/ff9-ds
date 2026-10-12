@@ -1,13 +1,11 @@
-/* A software PS1 GPU: rasterises the packets the ordering-table walker hands over into the VRAM shadow, following
- * psx-spx ("GPU Render Polygon/Line/Rectangle Commands", "GPU Rendering Attributes").
+/* The software PS1 GPU backend (gp0.h): rasterises decoded primitives into the VRAM shadow.
  *
- * It is the reference renderer: on the PC build it shows what the PS1 would display (frame dumps), which the DS
- * renderer (3D hardware, scaled) is checked against. It models drawing area, offset, texture pages (4/8/15 bit, CLUTs),
- * texture window, the four semi-transparency modes, raw vs modulated textures, gouraud shading, mask bits.
- * Dithering and exact sub-pixel edge rules are not modelled.
- *
- * Enabled with psx_softgpu_enable(1) (PC: --render).
+ * It is the reference renderer: on the PC build it shows what the PS1 would display (frame dumps), and the DS 3D
+ * renderer is checked against it. It models the drawing area, texture pages (4/8/15 bit, CLUTs), texture window,
+ * the four semi-transparency modes, raw vs modulated textures, gouraud shading and mask bits. Dithering and exact
+ * sub-pixel edge rules are not modelled. Edge functions and interpolants step per pixel (no division in the loop).
  */
+#include "gp0.h"
 #include "psyq_port.h"
 
 #define VRAM_W 1024
@@ -15,32 +13,9 @@
 
 extern u16 *psx_vram;
 
-static int enabled;
-
-/* drawing environment (GP0 E1-E6) */
-static int area_x0, area_y0, area_x1 = VRAM_W - 1, area_y1 = VRAM_H - 1;
-static int ofs_x, ofs_y;
-static u32 texpage; /* E1 bits */
-static u32 twin_mask_x, twin_mask_y, twin_off_x, twin_off_y;
-static int set_mask, check_mask;
-
-void psx_softgpu_enable(int on) {
-    enabled = on;
-}
-
 static inline u16 *px(int x, int y) {
     return &psx_vram[(y & (VRAM_H - 1)) * VRAM_W + (x & (VRAM_W - 1))];
 }
-
-/* ---- pixel pipeline ------------------------------------------------------------------------------------ */
-
-typedef struct {
-    int textured, raw, semi, gouraud;
-    int abr;      /* blend mode */
-    int depth;    /* 0 4-bit, 1 8-bit, 2 15-bit */
-    int tx, ty;   /* texture page base */
-    int clut_x, clut_y;
-} Mode;
 
 static inline u16 blend(u16 back, u16 front, int abr) {
     int br = back & 31, bg = (back >> 5) & 31, bb = (back >> 10) & 31;
@@ -58,34 +33,27 @@ static inline u16 blend(u16 back, u16 front, int abr) {
     return (u16)(r | g << 5 | b << 10);
 }
 
-static inline u16 texel(const Mode *m, int u, int v) {
-    u = (u & ~twin_mask_x) | (twin_off_x & twin_mask_x);
-    v = (v & ~twin_mask_y) | (twin_off_y & twin_mask_y);
-    u &= 0xFF;
-    v &= 0xFF;
+static inline u16 texel(const Gp0Mode *m, int u, int v) {
+    const Gp0State *s = &gp0_state;
+    u = (int)(((unsigned)u & ~s->twin_mask_x) | (s->twin_off_x & s->twin_mask_x)) & 0xFF;
+    v = (int)(((unsigned)v & ~s->twin_mask_y) | (s->twin_off_y & s->twin_mask_y)) & 0xFF;
     switch (m->depth) {
     case 0: {
         u16 w = *px(m->tx + (u >> 2), m->ty + v);
-        int idx = (w >> ((u & 3) * 4)) & 0xF;
-        return *px(m->clut_x + idx, m->clut_y);
+        return *px(m->clut_x + ((w >> ((u & 3) * 4)) & 0xF), m->clut_y);
     }
     case 1: {
         u16 w = *px(m->tx + (u >> 1), m->ty + v);
-        int idx = (w >> ((u & 1) * 8)) & 0xFF;
-        return *px(m->clut_x + idx, m->clut_y);
+        return *px(m->clut_x + ((w >> ((u & 1) * 8)) & 0xFF), m->clut_y);
     }
     default:
         return *px(m->tx + u, m->ty + v);
     }
 }
 
-/* Plot one pixel: colour (r, g, b 0..255), texture coordinate (u, v) if textured. */
-static inline void plot(const Mode *m, int x, int y, int r, int g, int b, int u, int v) {
-    if (x < area_x0 || x > area_x1 || y < area_y0 || y > area_y1) {
-        return;
-    }
+static inline void plot(const Gp0Mode *m, int x, int y, int r, int g, int b, int u, int v) {
     u16 *d = px(x, y);
-    if (check_mask && (*d & 0x8000)) {
+    if (gp0_state.check_mask && (*d & 0x8000)) {
         return;
     }
     u16 c;
@@ -93,7 +61,7 @@ static inline void plot(const Mode *m, int x, int y, int r, int g, int b, int u,
     if (m->textured) {
         u16 t = texel(m, u, v);
         if (t == 0) {
-            return; /* fully transparent */
+            return;
         }
         semi = semi && (t & 0x8000);
         if (m->raw) {
@@ -108,33 +76,24 @@ static inline void plot(const Mode *m, int x, int y, int r, int g, int b, int u,
     if (semi) {
         c = (u16)(blend(*d, c, m->abr) | (c & 0x8000));
     }
-    *d = c | (set_mask ? 0x8000 : 0);
+    *d = c | (gp0_state.set_mask ? 0x8000 : 0);
 }
 
-/* ---- primitives ---------------------------------------------------------------------------------------- */
+/* ---- triangle: edge functions and interpolants stepped in 16.16 fixed point --------------------------- */
 
-typedef struct {
-    int x, y, r, g, b, u, v;
-} Vtx;
-
-static inline s32 edge(const Vtx *a, const Vtx *b, int x, int y) {
-    return (b->x - a->x) * (y - a->y) - (b->y - a->y) * (x - a->x);
-}
-
-static void triangle(const Mode *m, Vtx a, Vtx b, Vtx c) {
-    s32 area = edge(&a, &b, c.x, c.y);
+static void triangle(const Gp0Mode *m, const Gp0Vtx *a, const Gp0Vtx *b, const Gp0Vtx *c) {
+    int area = (b->x - a->x) * (c->y - a->y) - (b->y - a->y) * (c->x - a->x);
     if (area == 0) {
         return;
     }
-    if (area < 0) { /* make it counter-clockwise */
-        Vtx t = b;
+    if (area < 0) {
+        const Gp0Vtx *t = b;
         b = c;
         c = t;
         area = -area;
     }
-    /* the GPU skips polygons larger than 1023x511 */
-    int minx = a.x, maxx = a.x, miny = a.y, maxy = a.y;
-    const Vtx *vs[3] = {&a, &b, &c};
+    int minx = a->x, maxx = a->x, miny = a->y, maxy = a->y;
+    const Gp0Vtx *vs[3] = {a, b, c};
     for (int i = 1; i < 3; i++) {
         if (vs[i]->x < minx) minx = vs[i]->x;
         if (vs[i]->x > maxx) maxx = vs[i]->x;
@@ -142,248 +101,130 @@ static void triangle(const Mode *m, Vtx a, Vtx b, Vtx c) {
         if (vs[i]->y > maxy) maxy = vs[i]->y;
     }
     if (maxx - minx >= 1024 || maxy - miny >= 512) {
+        return; /* the GPU skips polygons this large */
+    }
+    if (minx < gp0_state.area_x0) minx = gp0_state.area_x0;
+    if (miny < gp0_state.area_y0) miny = gp0_state.area_y0;
+    if (maxx > gp0_state.area_x1 + 1) maxx = gp0_state.area_x1 + 1;
+    if (maxy > gp0_state.area_y1 + 1) maxy = gp0_state.area_y1 + 1;
+    if (minx >= maxx || miny >= maxy) {
         return;
     }
-    if (minx < area_x0) minx = area_x0;
-    if (miny < area_y0) miny = area_y0;
-    if (maxx > area_x1 + 1) maxx = area_x1 + 1;
-    if (maxy > area_y1 + 1) maxy = area_y1 + 1;
+    /* edge function e_i(x, y) = A_i x + B_i y + C_i, for the edge opposite vertex i */
+    int A0 = b->y - c->y, B0 = c->x - b->x, A1 = c->y - a->y, B1 = a->x - c->x, A2 = a->y - b->y, B2 = b->x - a->x;
+    int w0row = A0 * (minx - b->x) + B0 * (miny - b->y);
+    int w1row = A1 * (minx - c->x) + B1 * (miny - c->y);
+    int w2row = A2 * (minx - a->x) + B2 * (miny - a->y);
+    /* top-left rule: on a right/bottom edge the pixel belongs to the neighbour (bias the edge by -1) */
+    int bias0 = (A0 > 0 || (A0 == 0 && B0 < 0)) ? 0 : -1;
+    int bias1 = (A1 > 0 || (A1 == 0 && B1 < 0)) ? 0 : -1;
+    int bias2 = (A2 > 0 || (A2 == 0 && B2 < 0)) ? 0 : -1;
+    /* attribute = (w0 * a + w1 * b + w2 * c) / area: precompute 16.16 per-step deltas */
+    long long inv = ((long long)1 << 32) / area; /* 0.32 */
+#define GRAD(fa, fb, fc) \
+    (int)((((long long)(fa) * A0 + (long long)(fb) * A1 + (long long)(fc) * A2) * inv) >> 16), \
+    (int)((((long long)(fa) * B0 + (long long)(fb) * B1 + (long long)(fc) * B2) * inv) >> 16)
+    int drdx, drdy, dgdx, dgdy, dbdx, dbdy, dudx, dudy, dvdx, dvdy;
+    {
+        int t[2] = {GRAD(a->r, b->r, c->r)}; drdx = t[0]; drdy = t[1];
+    }
+    {
+        int t[2] = {GRAD(a->g, b->g, c->g)}; dgdx = t[0]; dgdy = t[1];
+    }
+    {
+        int t[2] = {GRAD(a->b, b->b, c->b)}; dbdx = t[0]; dbdy = t[1];
+    }
+    {
+        int t[2] = {GRAD(a->u, b->u, c->u)}; dudx = t[0]; dudy = t[1];
+    }
+    {
+        int t[2] = {GRAD(a->v, b->v, c->v)}; dvdx = t[0]; dvdy = t[1];
+    }
+#undef GRAD
+    /* attribute values at (minx, miny), 16.16 */
+#define AT(fa, fb, fc) \
+    (int)((((long long)(fa) * w0row + (long long)(fb) * w1row + (long long)(fc) * w2row) * inv) >> 16)
+    int rrow = AT(a->r, b->r, c->r), grow = AT(a->g, b->g, c->g), brow = AT(a->b, b->b, c->b);
+    int urow = AT(a->u, b->u, c->u), vrow = AT(a->v, b->v, c->v);
+#undef AT
     for (int y = miny; y < maxy; y++) {
+        int w0 = w0row, w1 = w1row, w2 = w2row;
+        int r = rrow, g = grow, bl = brow, u = urow, v = vrow;
         for (int x = minx; x < maxx; x++) {
-            s32 w0 = edge(&b, &c, x, y), w1 = edge(&c, &a, x, y), w2 = edge(&a, &b, x, y);
-            if (w0 < 0 || w1 < 0 || w2 < 0) {
-                continue;
+            if ((w0 + bias0) >= 0 && (w1 + bias1) >= 0 && (w2 + bias2) >= 0) {
+                if (m->gouraud) {
+                    plot(m, x, y, r >> 16, g >> 16, bl >> 16, u >> 16, v >> 16);
+                } else {
+                    plot(m, x, y, a->r, a->g, a->b, u >> 16, v >> 16);
+                }
             }
-            /* top-left rule: drop pixels exactly on right/bottom edges */
-            if ((w0 == 0 && !(c.y < b.y || (c.y == b.y && c.x < b.x))) ||
-                (w1 == 0 && !(a.y < c.y || (a.y == c.y && a.x < c.x))) ||
-                (w2 == 0 && !(b.y < a.y || (b.y == a.y && b.x < a.x)))) {
-                continue;
-            }
-            int r = a.r, g = a.g, bl = a.b;
-            if (m->gouraud) {
-                r = (w0 * a.r + w1 * b.r + w2 * c.r) / area;
-                g = (w0 * a.g + w1 * b.g + w2 * c.g) / area;
-                bl = (w0 * a.b + w1 * b.b + w2 * c.b) / area;
-            }
-            int u = 0, v = 0;
-            if (m->textured) {
-                u = (w0 * a.u + w1 * b.u + w2 * c.u) / area;
-                v = (w0 * a.v + w1 * b.v + w2 * c.v) / area;
-            }
-            plot(m, x, y, r, g, bl, u, v);
+            w0 += A0;
+            w1 += A1;
+            w2 += A2;
+            r += drdx, g += dgdx, bl += dbdx, u += dudx, v += dvdx;
         }
+        w0row += B0;
+        w1row += B1;
+        w2row += B2;
+        rrow += drdy, grow += dgdy, brow += dbdy, urow += dudy, vrow += dvdy;
     }
 }
 
-static void line(const Mode *m, Vtx a, Vtx b) {
-    int dx = b.x - a.x, dy = b.y - a.y;
-    int n = (dx < 0 ? -dx : dx) > (dy < 0 ? -dy : dy) ? (dx < 0 ? -dx : dx) : (dy < 0 ? -dy : dy);
+static void sg_poly(const Gp0Mode *m, const Gp0Vtx *v, int n) {
+    if (!psx_vram) {
+        return;
+    }
+    triangle(m, &v[0], &v[1], &v[2]);
+    if (n == 4) {
+        triangle(m, &v[1], &v[2], &v[3]);
+    }
+}
+
+static void sg_line(const Gp0Mode *m, const Gp0Vtx *a, const Gp0Vtx *b) {
+    if (!psx_vram) {
+        return;
+    }
+    int dx = b->x - a->x, dy = b->y - a->y;
+    int adx = dx < 0 ? -dx : dx, ady = dy < 0 ? -dy : dy;
+    int n = adx > ady ? adx : ady;
     if (n >= 1024) {
         return;
     }
     for (int i = 0; i <= n; i++) {
-        int x = n ? a.x + dx * i / n : a.x, y = n ? a.y + dy * i / n : a.y;
-        int r = a.r, g = a.g, bl = a.b;
+        int x = n ? a->x + dx * i / n : a->x, y = n ? a->y + dy * i / n : a->y;
+        if (x < gp0_state.area_x0 || x > gp0_state.area_x1 || y < gp0_state.area_y0 || y > gp0_state.area_y1) {
+            continue;
+        }
+        int r = a->r, g = a->g, bl = a->b;
         if (m->gouraud && n) {
-            r = a.r + (b.r - a.r) * i / n;
-            g = a.g + (b.g - a.g) * i / n;
-            bl = a.b + (b.b - a.b) * i / n;
+            r += (b->r - a->r) * i / n;
+            g += (b->g - a->g) * i / n;
+            bl += (b->b - a->b) * i / n;
         }
         plot(m, x, y, r, g, bl, 0, 0);
     }
 }
 
-static void rect(const Mode *m, Vtx a, int w, int h) {
-    for (int j = 0; j < h; j++) {
-        for (int i = 0; i < w; i++) {
-            plot(m, a.x + i, a.y + j, a.r, a.g, a.b, a.u + i, a.v + j);
-        }
-    }
-}
-
-/* ---- packet decoding ----------------------------------------------------------------------------------- */
-
-static inline int sext11(int v) {
-    return (v << 21) >> 21;
-}
-
-static Vtx vtx(u32 xy) {
-    Vtx v = {0};
-    v.x = sext11((int)(xy & 0x7FF)) + ofs_x;
-    v.y = sext11((int)((xy >> 16) & 0x7FF)) + ofs_y;
-    return v;
-}
-
-static void set_color(Vtx *v, u32 c) {
-    v->r = c & 0xFF;
-    v->g = (c >> 8) & 0xFF;
-    v->b = (c >> 16) & 0xFF;
-}
-
-static void apply_texpage(Mode *m, u32 tp) {
-    m->tx = (tp & 15) * 64;
-    m->ty = ((tp >> 4) & 1) * 256;
-    m->abr = (tp >> 5) & 3;
-    m->depth = (tp >> 7) & 3;
-    if (m->depth == 3) {
-        m->depth = 2;
-    }
-}
-
-static void mode_from_texpage(Mode *m) {
-    apply_texpage(m, texpage);
-}
-
-/* Render one GP0 command starting at w[0]; returns the number of words it used. */
-static unsigned int command(const u32 *w, unsigned int avail) {
-    u32 cmd = w[0] >> 24;
-    Mode m = {0};
-    mode_from_texpage(&m);
-
-    if (cmd >= 0x20 && cmd < 0x40) { /* polygon */
-        m.gouraud = (cmd >> 4) & 1;
-        int quad = (cmd >> 3) & 1;
-        m.textured = (cmd >> 2) & 1;
-        m.semi = (cmd >> 1) & 1;
-        m.raw = cmd & 1;
-        int nv = quad ? 4 : 3;
-        unsigned int need = 1 + nv * (1 + m.textured) + (m.gouraud ? nv - 1 : 0);
-        if (need > avail) {
-            return avail;
-        }
-        Vtx v[4];
-        unsigned int k = 0;
-        for (int i = 0; i < nv; i++) {
-            u32 col = (i == 0 || !m.gouraud) ? w[0] : w[k++];
-            if (i == 0) {
-                k = 1;
-            }
-            v[i] = vtx(w[k++]);
-            set_color(&v[i], col);
-            if (m.textured) {
-                u32 uv = w[k++];
-                v[i].u = uv & 0xFF;
-                v[i].v = (uv >> 8) & 0xFF;
-                if (i == 0) {
-                    m.clut_x = ((uv >> 16) & 0x3F) * 16;
-                    m.clut_y = (uv >> 22) & 0x1FF;
-                } else if (i == 1) {
-                    u32 tp = uv >> 16;
-                    texpage = (texpage & ~0x9FFu) | (tp & 0x9FF);
-                    apply_texpage(&m, tp);
-                }
-            }
-        }
-        triangle(&m, v[0], v[1], v[2]);
-        if (quad) {
-            triangle(&m, v[1], v[2], v[3]);
-        }
-        return need;
-    }
-    if (cmd >= 0x40 && cmd < 0x60) { /* line, polyline */
-        m.gouraud = (cmd >> 4) & 1;
-        m.semi = (cmd >> 1) & 1;
-        int poly = (cmd >> 3) & 1;
-        unsigned int k = 1;
-        Vtx prev = vtx(w[k++]);
-        set_color(&prev, w[0]);
-        for (;;) {
-            if (k >= avail) {
-                return avail;
-            }
-            u32 col = w[0];
-            if (m.gouraud) {
-                col = w[k++];
-                if (k >= avail) {
-                    return avail;
-                }
-            }
-            if (poly && (w[k - (m.gouraud ? 1 : 0)] & 0xF000F000) == 0x50005000) {
-                return k;
-            }
-            Vtx next = vtx(w[k++]);
-            set_color(&next, col);
-            line(&m, prev, next);
-            prev = next;
-            if (!poly) {
-                return k;
-            }
-        }
-    }
-    if (cmd >= 0x60 && cmd < 0x80) { /* rectangle */
-        m.textured = (cmd >> 2) & 1;
-        m.semi = (cmd >> 1) & 1;
-        m.raw = cmd & 1;
-        int size = (cmd >> 3) & 3;
-        unsigned int need = 2 + m.textured + (size == 0);
-        if (need > avail) {
-            return avail;
-        }
-        Vtx v = vtx(w[1]);
-        set_color(&v, w[0]);
-        unsigned int k = 2;
-        if (m.textured) {
-            u32 uv = w[k++];
-            v.u = uv & 0xFF;
-            v.v = (uv >> 8) & 0xFF;
-            m.clut_x = ((uv >> 16) & 0x3F) * 16;
-            m.clut_y = (uv >> 22) & 0x1FF;
-        }
-        int wd = 1, ht = 1;
-        if (size == 0) {
-            wd = w[k] & 0x3FF;
-            ht = (w[k] >> 16) & 0x1FF;
-        } else if (size == 2) {
-            wd = ht = 8;
-        } else if (size == 3) {
-            wd = ht = 16;
-        }
-        rect(&m, v, wd, ht);
-        return need;
-    }
-    switch (cmd) {
-    case 0xE1:
-        texpage = w[0] & 0xFFFFFF;
-        break;
-    case 0xE2:
-        twin_mask_x = (w[0] & 31) * 8;
-        twin_mask_y = ((w[0] >> 5) & 31) * 8;
-        twin_off_x = ((w[0] >> 10) & 31) * 8;
-        twin_off_y = ((w[0] >> 15) & 31) * 8;
-        break;
-    case 0xE3:
-        area_x0 = w[0] & 0x3FF;
-        area_y0 = (w[0] >> 10) & 0x1FF;
-        break;
-    case 0xE4:
-        area_x1 = w[0] & 0x3FF;
-        area_y1 = (w[0] >> 10) & 0x1FF;
-        break;
-    case 0xE5:
-        ofs_x = sext11((int)(w[0] & 0x7FF));
-        ofs_y = sext11((int)((w[0] >> 11) & 0x7FF));
-        break;
-    case 0xE6:
-        set_mask = w[0] & 1;
-        check_mask = (w[0] >> 1) & 1;
-        break;
-    case 0x02: /* fill: done by gpu.c on the shadow */
-        return 3;
-    case 0x80: /* VRAM copy: done by gpu.c */
-        return 4;
-    default:
-        break;
-    }
-    return 1;
-}
-
-/* the walker's hook (gpu.c): one packet's words */
-void psx_render_packet(const u32 *words, unsigned int len) {
-    if (!enabled || !psx_vram) {
+static void sg_rect(const Gp0Mode *m, const Gp0Vtx *v, int w, int h) {
+    if (!psx_vram) {
         return;
     }
-    for (unsigned int i = 0; i < len;) {
-        i += command(words + i, len - i);
+    int x0 = v->x, y0 = v->y, x1 = v->x + w, y1 = v->y + h;
+    int u0 = v->u - x0, v0 = v->v - y0;
+    if (x0 < gp0_state.area_x0) x0 = gp0_state.area_x0;
+    if (y0 < gp0_state.area_y0) y0 = gp0_state.area_y0;
+    if (x1 > gp0_state.area_x1 + 1) x1 = gp0_state.area_x1 + 1;
+    if (y1 > gp0_state.area_y1 + 1) y1 = gp0_state.area_y1 + 1;
+    for (int y = y0; y < y1; y++) {
+        for (int x = x0; x < x1; x++) {
+            plot(m, x, y, v->r, v->g, v->b, u0 + x, v0 + y);
+        }
     }
+}
+
+const Gp0Backend psx_softgpu = {sg_poly, sg_line, sg_rect, 0, 0};
+
+/* PC --render / DS debug: rasterise into the VRAM shadow */
+void psx_softgpu_enable(int on) {
+    gp0_backend = on ? &psx_softgpu : 0;
 }

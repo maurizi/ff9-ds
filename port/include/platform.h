@@ -7,6 +7,9 @@
 /* Block until the next 60 Hz frame boundary (DS: the real VBlank; PC: a 60 Hz pace, or none when headless). */
 void plat_wait_frame(void);
 
+/* Called once the PS1 memory (VRAM/SPU shadows) is allocated: platform video setup. */
+void plat_video_init(void);
+
 /* Debug output (DS: bottom-screen console; PC: stderr). */
 void plat_vlog(const char *fmt, va_list ap);
 

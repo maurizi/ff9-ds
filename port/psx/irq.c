@@ -7,6 +7,7 @@
  * Per frame (psx_frame): CD pump, root counter 2 events (AKAO's 240 Hz tick: 4 per frame), DrawSync callback, pad
  * buffers, the VSync callback, then the platform's frame wait.
  */
+#include "gp0.h"
 #include "platform.h"
 #include "psyq_port.h"
 
@@ -201,6 +202,9 @@ void psx_frame(void) {
     psx_pad_update();
     if (vsync_cb) {
         vsync_cb();
+    }
+    if (gp0_backend && gp0_backend->frame) {
+        gp0_backend->frame();
     }
     plat_wait_frame();
 }

@@ -8,7 +8,7 @@
  * DrawOTag walks the ordering table in the PS1's order. OT links are 24-bit (P_TAG.addr): psx_ram lives in the
  * one 16 MB window both platforms share (DSi main RAM 0x02000000-0x02FFFFFF; the PC maps psx_ram there), so a
  * link rebuilds as (psx_ram & 0xFF000000) | addr24. The walker applies VRAM fills and copies to the shadow and
- * hands every packet to the renderer (psx_render_packet, weak: none yet).
+ * hands every packet to the GP0 decoder (gp0.c), which drives the active renderer backend.
  */
 #include "psyq_port.h"
 
@@ -32,13 +32,9 @@ int psx_trace_gpu;
 /* per-frame statistics (debug overlay, perf.md) */
 unsigned int psx_gpu_packets, psx_gpu_words;
 
-/* The renderer's entry (M2): called for each packet in draw order. */
-__attribute__((weak)) void psx_render_packet(const u32 *words, unsigned int len) {
-}
-__attribute__((weak)) void psx_render_begin(const DRAWENV *env) {
-}
-__attribute__((weak)) void psx_render_end(void) {
-}
+/* Drawing: every packet goes through the GP0 decoder (gp0.c), which keeps the drawing state and hands primitives to
+ * the active backend (software reference, or the DS 3D hardware). */
+#include "gp0.h"
 
 static inline u32 *link_ptr(u32 addr24) {
     return (u32 *)(((u32)psx_ram & 0xFF000000) | addr24);
@@ -223,7 +219,6 @@ DRAWENV *PutDrawEnv(DRAWENV *env) {
     ((P_TAG *)&env->dr_env)->addr = OT_END;
     draw_packet((u32 *)&env->dr_env);
     __builtin_memcpy(&draw_env, env, sizeof draw_env);
-    psx_render_begin(env);
     return env;
 }
 
@@ -404,7 +399,7 @@ static void draw_packet(u32 *p) {
         i += n;
     }
     if (len) {
-        psx_render_packet(w, len);
+        gp0_run(w, len);
     }
 }
 
@@ -430,7 +425,6 @@ void DrawOTag(u32 *p) {
             port_fatal("DrawOTag: ordering table loops");
         }
     }
-    psx_render_end();
     if (drawsync_cb) {
         drawsync_owed = 1;
     }
