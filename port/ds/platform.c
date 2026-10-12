@@ -18,43 +18,6 @@ extern unsigned char g_cdLoad[];
 
 extern unsigned char *g_gameState; /* PS1 0x8006794C: GameState * */
 
-static void wd_put(int x, int y, const char *s) {
-    u16 *map = console->fontBgMap + y * console->consoleWidth;
-    for (; *s && x < console->consoleWidth; s++, x++) {
-        map[x] = (u16)((*s - console->font.asciiOffset + console->fontCharOffset) | (console->fontPalIndex << 12));
-    }
-}
-
-static char *wd_hex(char *p, unsigned int v, int digits) {
-    for (int i = digits - 1; i >= 0; i--) {
-        p[i] = "0123456789ABCDEF"[v & 0xF];
-        v >>= 4;
-    }
-    p[digits] = ' ';
-    return p + digits + 1;
-}
-
-static void watchdog(void) {
-    if (++ticks % 30 || !console) {
-        return;
-    }
-    char line[64], *p = line;
-    p = wd_hex(p, ticks / 60, 3);
-    p = wd_hex(p, (unsigned int)frames, 5);
-    p = wd_hex(p, g_cdLoad[0], 2);
-    p = wd_hex(p, psx_cd_debug[0], 2);
-    p = wd_hex(p, psx_cd_debug[1], 4);
-    p = wd_hex(p, psx_cd_debug[2], 4);
-    *p = 0;
-    wd_put(0, 21, line);
-    p = line;
-    p = wd_hex(p, psx_cd_debug[3], 6);
-    p = wd_hex(p, psx_cd_debug[4], 4);
-    p = wd_hex(p, psx_cd_debug[5], 2);
-    *p = 0;
-    wd_put(0, 22, line);
-}
-
 void plat_wait_frame(void) {
     swiWaitForVBlank();
     frames++;
