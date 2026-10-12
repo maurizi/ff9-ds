@@ -11,7 +11,7 @@ listed at the milestone that first needs them. The decomp agent should work slig
 - **Exit**: an `.nds` that links (with stubs for R1 functions), boots in melonDS and no$gba, and prints the
   `g_gameState` address. The host build links too.
 
-## M1: Headless boot (R1, R2, R3, R4, R10-cd) — PC build reaches and runs field 70 (2026-10-11); lockstep pending
+## M1: Headless boot (R1, R2, R3, R4, R10-cd) — PC build and DSi (melonDS) reach and run field 70 (2026-10-11); lockstep pending
 - Software GTE with a unit test suite (vectors from PCSX-Redux traces of GTE ops via `tools/emu.py`).
 - `port/psx`: CD from SD, VSync/timers/events, pad, card; GPU and SPU are no-ops.
 - **Exit**: the host build reaches the title screen, starts a New Game and enters the first field. A lockstep run

@@ -31,14 +31,21 @@ Most crashes so far were found by following the bad value back with gdb watchpoi
 which are ordinary symbols in the port.
 
 ## Running the DS build in an emulator
-- **melonDS** (Flatpak `net.kuribo64.melonDS`): `flatpak run net.kuribo64.melonDS build/ff9ds.nds`. Config in
-  `~/.var/app/net.kuribo64.melonDS/config/melonDS/melonDS.toml`; DLDI with folder sync onto `build/sdroot/` (which
-  holds `ff9ds/raw/FF9 CD1.img`, a link to the disc image) gives the ROM its SD card. Use dotted keys
-  (`[Gdb]` `ARM9.BreakOnStartup = ...`): melonDS can't save `[Gdb]` + `[Gdb.ARM9]` table pairs and crashes on exit.
+- **melonDS, DSi mode** (Flatpak `net.kuribo64.melonDS`), the main target: `flatpak run net.kuribo64.melonDS
+  build/ff9ds.nds`. It needs your own DSi dumps (ARM9i/ARM7i BIOS, DSi firmware, NAND) and DS BIOS/firmware, kept
+  outside the repo (`~/.var/app/net.kuribo64.melonDS/data/melonDS-dsi/`). Config:
+  `~/.var/app/net.kuribo64.melonDS/config/melonDS/melonDS.toml` with `Emu.ConsoleType = 1`,
+  `Emu.ExternalBIOSEnable = true`, `Emu.DirectBoot = true`, the `[DS]`/`[DSi]` paths, and `[DSi.SD]` with folder sync
+  onto `build/sdroot/` (which holds `ff9ds/raw/FF9 CD1.img`, a link to the disc image). The game reads `sd:/ff9ds`.
+  Verified 2026-10-11: the title -> New Game script reaches field 70 (mode 1, ovl_0A) at frame ~5000.
+- melonDS doesn't exit on SIGTERM: close it with `pkill -9 -x melonDS` after a run (never `pkill -f`, which matches
+  its own shell). Use dotted keys under `[Gdb]` if you set any: melonDS can't save `[Gdb]` + `[Gdb.ARM9]` table pairs.
   The Flathub build has no GDB stub.
-- **DS mode (4 MB)** runs the game logic without the VRAM/SPU shadows. It is only good up to the first overlay the
-  game restores from its VRAM cache (`func_80012900` after New Game), so field testing needs **DSi mode**: melonDS
-  with DSi BIOS/firmware/NAND dumps from your own console, or real hardware.
+- **melonDS, DS mode (4 MB)**: runs the game logic without the VRAM/SPU shadows, only up to the first overlay the
+  game restores from its VRAM cache (after New Game). DLDI folder sync (`[DLDI]`) gives it the SD card.
+- **no$gba 2.8 under Wine**, fallback with a debugger: `tools/nogba.sh setup DIR` (copies your no$gba DSi setup and
+  builds a FAT32 `DSI-1.SD` with the disc image), `tools/nogba.sh run`. It boots the DSi menu from the NAND and
+  starts the cartridge with an XTest key press (`tools/xkey.py`).
 - DeSmuME: no DSi mode, and its R4 slot-1 emulation stalls on this ROM; not used.
 - `make ds AUTORUN=1 AUTOPRESS="CROSS@2500,UP@2900+3,CROSS@3000+3"` runs the title-to-New-Game script with no input.
   The status line at the bottom of the console shows frame, mode, overlays and libcd state.
