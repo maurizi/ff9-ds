@@ -15,6 +15,7 @@
 static unsigned int vblanks;      /* VSync(-1) */
 static unsigned int last_vsync;   /* vblank count at the previous VSync(n >= 0) */
 static void (*vsync_cb)(void);
+static unsigned int polls; /* VSync(-1) calls since the last frame */
 
 /* ---- root counters -------------------------------------------------------------------------------------- */
 
@@ -191,6 +192,7 @@ static void rcnt_frame(void) {
 void psx_movie_tick(void); /* port/game/movie.c */
 
 void psx_frame(void) {
+    polls = 0;
     psx_cd_pump();
     psx_movie_tick();
     psx_drawsync_pending();
@@ -206,8 +208,16 @@ void psx_frame(void) {
 /* VSync(mode) (libetc): -1 the vblank count; 1 hblanks since the last vblank (no wait); 0 wait for the next
  * vblank; n > 1 wait until n vblanks have passed since the previous VSync call. Virtual time only advances here,
  * so VSync(n) is n frames. Returns the hblanks since the previous call (263 per NTSC frame). */
+/* Polls of the vblank count within one frame before the port treats them as a busy-wait and lets a frame pass. On
+ * the PS1 the counter moves in real time while code spins on it (func_800B2C80 in the field loader waits that
+ * way); here virtual time only moves at frame boundaries, so a long run of polls stands in for that time. */
+#define POLLS_PER_FRAME 512
+
 long VSync(long mode) {
     if (mode < 0) {
+        if (++polls >= POLLS_PER_FRAME) {
+            psx_frame();
+        }
         return (long)vblanks;
     }
     if (mode == 1) {

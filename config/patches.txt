@@ -21,3 +21,18 @@ src/ovl_0b/ovl_0b_3.c | if ((u32)f > 0x80000000) { | if (PORT_IS_RAM_PTR(f)) { |
 src/main/main.c | D_8007F790->unk3C, | PSX_NZ(D_8007F790)->unk3C, | 1
 src/main/main.c | D_8007F790->unk40, | PSX_NZ(D_8007F790)->unk40, | 1
 src/main/main.c | D_8007F790->unk44, | PSX_NZ(D_8007F790)->unk44, | 1
+
+# field object tables: func_8001C7FC(8, id, 0x120000) can be NULL (the field has no type-8 table) and the code
+# reads t->unk1 / t->unk4 regardless (ovl_0a func_800AAF5C and its two siblings)
+src/ovl_0a/ovl_0a.c | func_8001C7FC(8, arg0, 0x120000) | PSX_NZ(func_8001C7FC(8, arg0, 0x120000)) | 3
+
+# TEMPORARY until the decomp fixes it (requested 2026-10-11): defined void, but the caller uses its result (on MIPS
+# $v0 still holds func_80062E3C's return value). Without it the field heap pointer D_80067948 becomes 0.
+src/ovl_0a/ovl_0a.c | void func_800AD44C(s32 arg0, s32 arg1, s32 arg2, s32 arg3) { | s32 func_800AD44C(s32 arg0, s32 arg1, s32 arg2, s32 arg3) { | 1
+src/ovl_0a/ovl_0a.c |     func_80062E3C(arg0, 0x100, 0xFF, arg2, arg3, arg1, 3); |     return func_80062E3C(arg0, 0x100, 0xFF, arg2, arg3, arg1, 3); | 1
+src/main/main.c | void func_80055290(s32 a) { | s32 func_80055290(s32 a) { | 1
+src/main/main.c | akao_command(0x10); | return akao_command(0x10); | 1
+src/main/main.c | void func_800553BC(s32 a, s32 b) { | s32 func_800553BC(s32 a, s32 b) { | 1
+src/main/main.c | akao_command(0x12); | return akao_command(0x12); | 1
+src/main/main.c | void func_80062794(s32 a) { | s32 func_80062794(s32 a) { | 1
+src/main/main.c | func_8002BA68(func_8006276C(a)); | return func_8002BA68(func_8006276C(a)); | 1
