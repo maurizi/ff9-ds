@@ -41,6 +41,12 @@ static u32 native_call(u32 target,u32 *r) {
         [0x13c/4]=6,[0x148/4]=2,[0x14c/4]=15,
         /* These s32 wrappers forward descriptor/position pointers to the pools. */
         [0x1d4/4]=3,[0x1d8/4]=3,
+        /* Unit IDs stay scalar; position/rotation/vector buffers are pointers. */
+        [0x1f8/4]=2,[0x1fc/4]=2,[0x200/4]=4,[0x204/4]=2,
+        [0x20c/4]=2,[0x214/4]=6,[0x2a0/4]=2,[0x2a8/4]=2,[0x2b8/4]=4,
+        /* Draw-model wrappers carry scale pointers as s32 before DCA68. */
+        [0x60/4]=7,[0x64/4]=7,[0x28c/4]=7,[0x31c/4]=7,
+        [0x254/4]=4,[0x290/4]=4,
     };
     u32 ctx=read32((u32)PSX_ADDR(0x800f78a4));
     if(ctx) {

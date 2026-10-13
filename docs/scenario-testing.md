@@ -209,3 +209,14 @@ the quad suite to 700 cases using a shared GTE model. Both targets build. The
 host proceeds past frame 6000 before a raw output pointer to E750C causes a
 segmentation fault (`pc_ark_d57d0_fault.log`); D57D0's native DS rendering still
 requires validation.
+
+Reviewed unit-position exports now decode position/rotation/vector buffers at
+table offsets 1F8, 1FC, 200, 204, 20C, 214, 2A0, 2A8 and 2B8. Model draw
+exports at 60, 64, 28C and 31C also decode their first three arguments: the
+third is declared `s32` in wrappers but forwarded as a scale vector to DCA68.
+Summon bone output buffers at 254/290 receive the same treatment. Fifteen
+synthetic export cases verify mapping, native writes and unchanged scalar IDs.
+The existing 360-case effect VM suite and both target builds pass. Both Ark
+fixtures advance to a different failure: BFAF4 dereferences a null `curCmd`
+while processing status bit 0x400 (`pc_ark_positions_models_fault.log`).
+This interface batch still requires fresh native DS validation.

@@ -14,6 +14,38 @@ static u32 pointer_export(u32 input,u32 scalar,u32 output) {
     if(input!=(u32)(psx_ram+0x180000) || scalar!=0x80008000 || output!=(u32)(psx_ram+0x180004)) abort();
     *(u32 *)output=0xfeed1234;return 0x76543210;
 }
+static unsigned position_mask;
+static u32 position_export(u32 id,u32 a,u32 b) {
+    u32 expected_id=position_mask&1 ? (u32)(psx_ram+0x8000) : 0x80008000;
+    u32 expected_a=position_mask&2 ? (u32)(psx_ram+0x180000) : 0x80180000;
+    u32 expected_b=position_mask&4 ? (u32)(psx_ram+0x180004) : 0x80180004;
+    if(id!=expected_id || a!=expected_a || b!=expected_b) abort();
+    if(position_mask&2) *(u32 *)a=0x1234abcd;
+    if(position_mask&4) *(u32 *)b=0x9876fedc;
+    return 0x76543210;
+}
+static void position_bridge_test(void) {
+    u32 *code=(u32 *)(psx_ram+0x1e7700),target=(u32)position_export;
+    u32 *context=(u32 *)(psx_ram+0x170000),*table=(u32 *)(psx_ram+0x170100);
+    static const unsigned entries[][2]={{0x1f8,2},{0x1fc,2},{0x200,4},
+        {0x204,2},{0x20c,2},{0x214,6},{0x2a0,2},{0x2a8,2},{0x2b8,4},
+        {0x60,7},{0x64,7},{0x28c,7},{0x31c,7},{0x254,4},{0x290,4}};
+    u32 words[]={0x27bdffc0,0xafbf003c,0x3c048000,0x34848000,
+                 0x3c058018,0x34a50000,0x3c068018,0x34c60004,
+                 0x3c190000|(target>>16),0x37390000|(target&65535),
+                 0x0320f809,0,0x8fbf003c,0,0x03e00008,0x27bd0040};
+    __builtin_memcpy(code,words,sizeof words);
+    *(u32 *)(psx_ram+0xf78a4)=(u32)context;context[4]=(u32)table;
+    for(unsigned i=0;i<sizeof entries/sizeof entries[0];i++) {
+        position_mask=entries[i][1];table[entries[i][0]/4]=target;
+        *(u32 *)(psx_ram+0x180000)=0;*(u32 *)(psx_ram+0x180004)=0;
+        if(port_effect_call(0x801e7700,0,0,0,0,0)!=0x76543210) abort();
+        if((position_mask&2) && *(u32 *)(psx_ram+0x180000)!=0x1234abcd) abort();
+        if((position_mask&4) && *(u32 *)(psx_ram+0x180004)!=0x9876fedc) abort();
+        table[entries[i][0]/4]=0;
+    }
+    *(u32 *)(psx_ram+0xf78a4)=0;
+}
 static void pointer_bridge_test(void) {
     u32 *code=(u32 *)(psx_ram+0x1e7700),target=(u32)pointer_export;
     u32 *context=(u32 *)(psx_ram+0x170000),*table=(u32 *)(psx_ram+0x170100);
@@ -65,6 +97,7 @@ int main(void) {
     bridge_test();
     pointer_bridge_test();
     incoming_words_test();
+    position_bridge_test();
     u32 args[5],size;
     while(fread(&size,4,1,stdin)==1) {
         if(size>0x5000 || fread(args,20,1,stdin)!=1 || fread(psx_ram+0x1e7700,size,1,stdin)!=1 || fread(psx_ram+0x180000,128,1,stdin)!=1 || fread(g,sizeof g,1,stdin)!=1) abort();
