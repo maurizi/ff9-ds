@@ -15,13 +15,18 @@ class Cpu(e.Cpu):
             assert op&63==1
             g[12:15]=[g[13],g[14],g[0]];g[17:20]=[g[18],g[19],g[1]&65535]
 rng=random.Random(0xd4478);cases=[];expected=[]
-for kind,address in enumerate((0x800D4478,0x800D40CC,0x800D45FC,0x800D3ED4,0x800D4228,0x800D437C)):
+for kind,address in enumerate((0x800D4478,0x800D40CC,0x800D45FC,0x800D3ED4,0x800D4228,0x800D437C,0x800D57D0)):
     asm=ROOT/f'decomp/asm/us/ovl_0b/nonmatchings/ovl_0b_2/func_{address:08X}.s'
     image=b''.join(bytes.fromhex(w) for w in re.findall(r'/\* [0-9A-F]+ [0-9A-F]{8} ([0-9A-F]{8}) \*/',asm.read_text()))
     for trial in range(100):
         data=bytearray(rng.randbytes(288));struct.pack_into('<I',data,244,trial%7)
         struct.pack_into('<I',data,248,rng.choice([0,0xffffffff,0xfffff000,0x1000]))
-        if kind in (1,3,4,5):
+        if kind==6:
+            struct.pack_into('<I',data,240,0x02180064)
+            struct.pack_into('<I',data,244,trial%16)
+            struct.pack_into('<I',data,232,rng.choice([0,0xffffffff,0xfffff000,0x1000]))
+            struct.pack_into('<I',data,228,rng.choice([0,0xffffffff,0x10000,rng.randrange(4096)]))
+        elif kind in (1,3,4,5):
             struct.pack_into('<2I',data,224,0x02000000+0x180064,0x02000000+0x180084)
             struct.pack_into('<I',data,252,1+trial%6)
             if kind==3:struct.pack_into('<2I',data,232,1+trial%32,1+trial%24)
@@ -33,13 +38,14 @@ for kind,address in enumerate((0x800D4478,0x800D40CC,0x800D45FC,0x800D3ED4,0x800
         cases.append(struct.pack('<I',kind)+data+out+ot+struct.pack('<64I',*regs))
         # Original pointers use KSEG0; native pointers use the fixed host arena.
         original=bytearray(data)
-        if kind in (1,3,4,5): struct.pack_into('<2I',original,224,0x80180064,0x80180084)
+        if kind==6: struct.pack_into('<I',original,240,0x80180064)
+        elif kind in (1,3,4,5): struct.pack_into('<2I',original,224,0x80180064,0x80180084)
         elif kind==2: struct.pack_into('<I',original,248,0x80181080)
         mem=e.Mem(trial,[(address,image),(0x80180000,bytes(original)),(0x80181000,out),(0x80188000,ot)])
         cpu=Cpu(mem,address,address+len(image),{}, {},trial,[0x80180000,0x801800e0,0x80181000,0x80188000]);cpu.g=regs.copy();cpu.run(address)
         assert not cpu.events and not cpu.calls,(trial,cpu.events,cpu.calls)
         if kind==2: mem.write(0x801810fc,cpu.r[2]&0xffffff,4)
-        expected.append(bytes(mem.read(0x80181000+i,1) for i in range(256))+bytes(mem.read(0x80188000+i,1) for i in range(16384))+struct.pack('<64I',*cpu.g))
+        expected.append(bytes(mem.read(0x80181000+i,1) for i in range(256))+bytes(mem.read(0x80188000+i,1) for i in range(16384))+struct.pack('<64I',*cpu.g)+bytes(mem.read(0x801800fc+i,1) for i in range(8)))
 result=subprocess.run([ROOT/'build/tests/battle_quads_probe'],input=b''.join(cases),capture_output=True);assert result.returncode==0,result.stderr.decode()
 size=len(expected[0]);assert len(result.stdout)==len(cases)*size
 for i,want in enumerate(expected):

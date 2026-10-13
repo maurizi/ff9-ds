@@ -188,7 +188,12 @@ preserving scalar bit patterns, and supports up to 16 o32 callback arguments.
 Local descriptor reads and D1494 buffer accesses decode pointers without changing
 the module's stored pointer representation. Tests exercise late exports,
 six/nine incoming arguments, zero-padding of native arguments, and 16-word
-outgoing calls. These changes still need fresh native DS validation together.
+outgoing calls. Fresh native DS execution with these changes reaches frame 4251
+and stops at missing D57D0, with no first-fault marker or changes to the first
+16 KiB of ITCM (`ds_ark_trail_writer_stop.ml8` and inspection JSON, matching
+`ff9ds_ark_trail_writer` ROM/ELF). Boot and combat videos with the same prefix
+retain animation. This validates the prior pointer/callback fixes along this
+route, not all module interfaces.
 
 CF5A4 now writes circular trail positions/widths; 400 randomized cases compare
 the entire buffer and return value with original MIPS, including wraparound,
@@ -196,3 +201,11 @@ byte counter rollover, and raw/native input pointers. The host Ark route now
 passes the prior failures and stops at missing D57D0
 (`scenarios_trail_writer/report.json`). The encounter and later content remain
 incomplete; neither this progress nor a passing build proves the boss playable.
+
+D57D0 now emits the single textured effect rectangle, preserving UV arithmetic,
+context scratch writes, the existing MAC0 cull decision, depth bucket limits,
+OT links and optional color fade. Its original-MIPS differential cases expand
+the quad suite to 700 cases using a shared GTE model. Both targets build. The
+host proceeds past frame 6000 before a raw output pointer to E750C causes a
+segmentation fault (`pc_ark_d57d0_fault.log`); D57D0's native DS rendering still
+requires validation.

@@ -4,6 +4,41 @@
 #include "psyq_port.h"
 #include "gte.h"
 static u32 word(const void *p, unsigned offset) { return *(const u32 *)((const u8 *)p + offset); }
+/* Single textured effect rectangle. Preserve MAC0's existing cull decision;
+ * the original RTPT sequence does not issue NCLIP. */
+void o0b_func_800D57D0(const u8 *rect,void *context,u8 *out,u32 *ot) {
+    const u8 *uv=(const u8 *)word(context,16);
+    u32 half=(u32)*(const u16 *)(rect+6)*2;
+    u32 top=0-word(context,12),bottom=top+(u32)*(const u16 *)(rect+4)*4;
+    for(unsigned i=0;i<3;i++) gte_ctc2(21+i,0);
+    gte_mtc2(4,half);*(u32 *)((u8 *)context+28)=half;
+    gte_mtc2(0,(0-half)&65535);gte_mtc2(2,(0-half)&65535);
+    gte_mtc2(1,top);gte_mtc2(5,top);gte_mtc2(3,bottom);
+    *(u32 *)((u8 *)context+32)=bottom;
+    u32 u=uv[0],v=(u32)uv[1]<<8;
+    gte_cmd(0x280030);
+    *(u32 *)(out+12)=u|v|((u32)*(const u16 *)(rect+2)<<16);
+    u32 right=u+(u32)*(const u16 *)(rect+8)-1;
+    *(u32 *)(out+20)=right|v|(((u32)*(const u16 *)rect|word(context,24))<<16);
+    v+=((u32)*(const u16 *)(rect+10)-1)<<8;
+    *(u16 *)(out+28)=(u16)(u|v);*(u16 *)(out+36)=(u16)(right|v);
+    for(unsigned i=0;i<3;i++) *(u32 *)(out+8+i*8)=gte_mfc2(12+i);
+    if(!gte_mfc2(24)) return;
+    u32 depth=gte_mfc2(19);
+    gte_mtc2(0,half);gte_mtc2(1,bottom);
+    const u8 *color=rect+12+word(context,20)*4;
+    gte_cmd(0x180001);
+    u32 bucket=(u32)((s32)(((s32)depth>>2)-word(context,4))>>2);
+    if(bucket<4096) {
+        u32 previous=ot[bucket];*(u32 *)out=0x09000000|(previous&0xffffff);
+        ot[bucket]=(previous&0xff000000)|((u32)out&0xffffff);
+    }
+    u32 rgb=*(const u16 *)color|((u32)color[2]<<16)|word(context,0);
+    *(u32 *)(out+32)=gte_mfc2(14);
+    u32 fade=word(context,8);
+    if((s32)fade>=0) {gte_mtc2(8,4096-fade);gte_mtc2(6,rgb);gte_cmd(0x780010);rgb=gte_mfc2(22);}
+    *(u32 *)(out+4)=rgb;
+}
 void o0b_func_800D437C(const u8 *points,const void *context,u8 *out,u32 *ot) {
     const u8 *colors=(const u8 *)word(context,4);
     u32 fade=word(context,24),count=word(context,28),code=word(context,36)<<24;
