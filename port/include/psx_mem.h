@@ -20,13 +20,20 @@ extern unsigned short psx_spu_regs[0x200];
 /* KSEG0/KUSEG address (0x80xxxxxx / 0x00xxxxxx) -> pointer into psx_ram, as an integer like the literal was. */
 #define PSX_ADDR(a) ((unsigned int)psx_ram + ((unsigned int)(a) & (PSX_RAM_SIZE - 1)))
 
+/* GPU ordering-table links retain only the low 24 bits of a native address.
+ * Game code that follows one on the CPU must restore the arena's high byte,
+ * as the GPU walker does; applying PSX_ADDR would use the wrong arena offset. */
+#define PSX_OT_PTR(a) ((unsigned int *)(((unsigned int)psx_ram & 0xFF000000u) | ((unsigned int)(a) & 0xFFFFFFu)))
+
 /* A pointer the game passes to a library call that is really a small PS1 address (KUSEG, below 2 MB): Square's
  * code sometimes passes a constant where a pointer is expected (CdControlB(CdlSetmode, (u8 *)0x80, 0) in
  * func_80022A28), which on the PS1 reads that physical address. Map such values into psx_ram. */
 #define PSX_PTR(p) ((unsigned int)(p) < PSX_RAM_SIZE ? (void *)(psx_ram + (unsigned int)(p)) : (void *)(p))
 
-/* A pointer the game may read through while it is NULL (config/patches.txt): the PS1 reads low RAM there. */
-#define PSX_NZ(p) ((p) ? (p) : (__typeof__(p))(void *)psx_ram)
+/* A pointer the original game dereferences while NULL: PS1 low RAM is valid
+ * for reads and writes. Evaluate calls/expressions once, retaining their type. */
+#define PSX_NZ(p) ({ __typeof__(p) __port_psx_nz_ptr = (p); \
+    __port_psx_nz_ptr ? __port_psx_nz_ptr : (__typeof__(p))(void *)psx_ram; })
 
 /* 0x1F80xxxx hardware address -> scratchpad or SPU register file (anything else traps in psx_hw_bad). */
 unsigned int psx_hw_bad(unsigned int a);

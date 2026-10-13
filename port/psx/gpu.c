@@ -46,10 +46,15 @@ static inline u16 *vram_at(int x, int y) {
     return &psx_vram[(y & (VRAM_H - 1)) * VRAM_W + (x & (VRAM_W - 1))];
 }
 
+/* DS renderer: VRAM area written, so textures made from it get rebuilt (render_gx.c) */
+__attribute__((weak)) void psx_vram_touch(int x, int y, int w, int h) {
+}
+
 static void vram_fill(int x, int y, int w, int h, u16 c) {
     if (!psx_vram) {
         return;
     }
+    psx_vram_touch(x, y, w, h);
     for (int j = 0; j < h; j++) {
         for (int i = 0; i < w; i++) {
             *vram_at(x + i, y + j) = c;
@@ -61,6 +66,7 @@ static void vram_copy(int sx, int sy, int dx, int dy, int w, int h) {
     if (!psx_vram) {
         return;
     }
+    psx_vram_touch(dx, dy, w, h);
     /* row buffer: overlapping copies behave as the GPU's line-by-line copy */
     static u16 row[VRAM_W];
     for (int j = 0; j < h; j++) {
@@ -84,6 +90,7 @@ int LoadImage(RECT *r, u32 *p) {
     if (!psx_vram) {
         return 0;
     }
+    psx_vram_touch(r->x, r->y, r->w, r->h);
     const u16 *src = (const u16 *)p;
     for (int j = 0; j < r->h; j++) {
         for (int i = 0; i < r->w; i++) {
@@ -217,8 +224,8 @@ static void draw_packet(u32 *p);
 DRAWENV *PutDrawEnv(DRAWENV *env) {
     SetDrawEnv(&env->dr_env, env);
     ((P_TAG *)&env->dr_env)->addr = OT_END;
-    draw_packet((u32 *)&env->dr_env);
     __builtin_memcpy(&draw_env, env, sizeof draw_env);
+    draw_packet((u32 *)&env->dr_env);
     return env;
 }
 
@@ -232,8 +239,29 @@ const DISPENV *psx_gpu_dispenv(void) {
     return &disp_env;
 }
 
+/* The framebuffer selected by PutDrawEnv, independent of subsequent GP0 clipping commands. */
+void psx_gpu_draw_area(int *x, int *y, int *w, int *h) {
+    *x = draw_env.clip.x;
+    *y = draw_env.clip.y;
+    *w = draw_env.clip.w;
+    *h = draw_env.clip.h;
+}
+
 void GetDrawEnv2(DR_ENV *p) {
-    SetDrawEnv(p, &draw_env);
+    /* GPU readback captures the current GP0 registers, including state changed
+     * by packets after PutDrawEnv. Battle inserts this packet after its UI OT
+     * to restore the interrupted scene's drawing state. No framebuffer clear. */
+    const Gp0State *s = &gp0_state;
+    p->code[0] = 0xE3000000 | ((s->area_y0 & 0x3FF) << 10) | (s->area_x0 & 0x3FF);
+    p->code[1] = 0xE4000000 | ((s->area_y1 & 0x3FF) << 10) | (s->area_x1 & 0x3FF);
+    p->code[2] = offset_word(s->ofs_x, s->ofs_y);
+    p->code[3] = 0xE1000000 | (s->texpage & 0xFFF);
+    p->code[4] = 0xE2000000 | ((s->twin_mask_x >> 3) & 31)
+        | (((s->twin_mask_y >> 3) & 31) << 5)
+        | (((s->twin_off_x >> 3) & 31) << 10)
+        | (((s->twin_off_y >> 3) & 31) << 15);
+    p->code[5] = 0xE6000000 | (s->set_mask != 0) | ((s->check_mask != 0) << 1);
+    set_len(p, 6);
 }
 
 /* ---- packet builders ------------------------------------------------------------------------------------ */
@@ -407,7 +435,9 @@ void DrawPrim(void *p) {
     draw_packet(p);
 }
 
-void DrawOTag(u32 *p) {
+static void draw_ot(u32 *p, const void *native_buffer, unsigned int native_size) {
+    /* Explicit bounds disambiguate stack links whose low 24 bits alias arena RAM. */
+    u32 head_window = (u32)p & 0xFF000000;
     unsigned int guard = 0;
     while (((u32)p & 0xFFFFFF) != OT_END) {
         u32 addr = *p & 0xFFFFFF;
@@ -417,9 +447,13 @@ void DrawOTag(u32 *p) {
         if (addr == OT_END) {
             break;
         }
-        p = link_ptr(addr);
-        if ((unsigned char *)p < psx_ram || (unsigned char *)p >= psx_ram + PSX_RAM_SIZE) {
-            port_fatal("DrawOTag: link 0x%06X outside psx_ram", addr);
+        u32 candidate = head_window | addr;
+        if (native_size && candidate - (u32)native_buffer < native_size)
+            p = (u32 *)candidate;
+        else {
+            p = link_ptr(addr);
+            if ((unsigned char *)p < psx_ram || (unsigned char *)p >= psx_ram + PSX_RAM_SIZE)
+                port_fatal("DrawOTag: link 0x%06X outside known buffers", addr);
         }
         if (++guard > 1000000) {
             port_fatal("DrawOTag: ordering table loops");
@@ -428,6 +462,10 @@ void DrawOTag(u32 *p) {
     if (drawsync_cb) {
         drawsync_owed = 1;
     }
+}
+void DrawOTag(u32 *p) { draw_ot(p, NULL, 0); }
+void port_draw_ot_buffer(u32 *p, const void *buffer, unsigned int size) {
+    draw_ot(p, buffer, size);
 }
 
 void DrawOTagEnv(u32 *p, DRAWENV *env) {
@@ -461,8 +499,15 @@ s32 IsIdleGPU(s32 max) {
 }
 
 s32 BreakDraw(void) {
+    /* DrawOTag finishes synchronously, so there is no outstanding DMA chain.
+     * Zero means idle; -1 would mean DMA is busy in a non-list transfer. */
     return 0;
 }
 
 void ContinueDraw(u32 *insaddr, s32 contaddr) {
+    /* Even when BreakDraw returns zero, the inserted list must execute. FF9
+     * uses this at VBlank for battle commands, status bars and text. */
+    if (insaddr) DrawOTag(insaddr);
+    if (contaddr && ((u32)contaddr & 0xFFFFFF) != OT_END)
+        DrawOTag(link_ptr((u32)contaddr & 0xFFFFFF));
 }

@@ -41,6 +41,12 @@ static CdCallback sync_cb, ready_cb, read_cb;
 static FILE *disc;
 static int disc_no = 1;
 
+void psx_cd_select_disc(unsigned selected) {
+    if(selected<1 || selected>4) port_fatal("invalid disc %u",selected);
+    if(disc) port_fatal("disc selection must precede game initialization");
+    disc_no=(int)selected;
+}
+
 /* libcd's own globals, which game C reads directly (func_80021310 CdStatus, func_80021320 CdMode, CdLastPos):
  * kept in PS1 RAM at their original addresses so those reads see the drive's state. */
 extern u8 D_8006825C;      /* status byte */

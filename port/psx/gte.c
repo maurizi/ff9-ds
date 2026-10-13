@@ -3,7 +3,7 @@
  * Register-level model following psx-spx: data registers d[0..31] and control registers c[0..31] keep their raw
  * 32-bit contents, and each command decodes the fields it needs. MAC1-3 are computed in 64 bits and checked for
  * the 44-bit overflow, and the perspective division uses the hardware's UNR (Newton-Raphson) table, so results
- * are bit-exact with the PS1 for the commands FF9 uses (RTPS/RTPT/NCLIP/AVSZ3/AVSZ4/MVMVA/OP/GPF/GPL/DPCS).
+ * model the PS1 commands FF9 uses (RTPS/RTPT/NCLIP/AVSZ3/AVSZ4/MVMVA/OP/GPF/GPL/DPCS).
  * FLAG is maintained. The one simplification: overflow is checked on each final 44-bit sum rather than after
  * every partial addition, which only matters for FLAG on pathological inputs.
  */
@@ -238,9 +238,9 @@ gte_u32 gte_cfc2(int reg) {
 static void rtp(int v, int sf, int lm, int last) {
     int shift = sf * 12;
     i64 x = V_X(v), y = V_Y(v), z = V_Z(v);
-    i64 m1 = ((i64)TRX << 12) + mtx(0, 0, 0) * x + mtx(0, 0, 1) * y + mtx(0, 0, 2) * z;
-    i64 m2 = ((i64)TRY << 12) + mtx(0, 1, 0) * x + mtx(0, 1, 1) * y + mtx(0, 1, 2) * z;
-    i64 m3 = ((i64)TRZ << 12) + mtx(0, 2, 0) * x + mtx(0, 2, 1) * y + mtx(0, 2, 2) * z;
+    i64 m1 = ((i64)TRX * 4096) + mtx(0, 0, 0) * x + mtx(0, 0, 1) * y + mtx(0, 0, 2) * z;
+    i64 m2 = ((i64)TRY * 4096) + mtx(0, 1, 0) * x + mtx(0, 1, 1) * y + mtx(0, 1, 2) * z;
+    i64 m3 = ((i64)TRZ * 4096) + mtx(0, 2, 0) * x + mtx(0, 2, 1) * y + mtx(0, 2, 2) * z;
     set_ir(1, set_mac(1, m1, shift), lm);
     set_ir(2, set_mac(2, m2, shift), lm);
     {
@@ -266,17 +266,17 @@ static void rtp(int v, int sf, int lm, int last) {
 /* [MAC1..3] = (T << 12 + M * V) >> shift, IR = MAC (MVMVA and the lighting steps) */
 static void mat_mul(int mbase, i64 vx, i64 vy, i64 vz, i64 tx, i64 ty, i64 tz, int sf, int lm) {
     int shift = sf * 12;
-    set_ir(1, set_mac(1, (tx << 12) + mtx(mbase, 0, 0) * vx + mtx(mbase, 0, 1) * vy + mtx(mbase, 0, 2) * vz, shift), lm);
-    set_ir(2, set_mac(2, (ty << 12) + mtx(mbase, 1, 0) * vx + mtx(mbase, 1, 1) * vy + mtx(mbase, 1, 2) * vz, shift), lm);
-    set_ir(3, set_mac(3, (tz << 12) + mtx(mbase, 2, 0) * vx + mtx(mbase, 2, 1) * vy + mtx(mbase, 2, 2) * vz, shift), lm);
+    set_ir(1, set_mac(1, (tx * 4096) + mtx(mbase, 0, 0) * vx + mtx(mbase, 0, 1) * vy + mtx(mbase, 0, 2) * vz, shift), lm);
+    set_ir(2, set_mac(2, (ty * 4096) + mtx(mbase, 1, 0) * vx + mtx(mbase, 1, 1) * vy + mtx(mbase, 1, 2) * vz, shift), lm);
+    set_ir(3, set_mac(3, (tz * 4096) + mtx(mbase, 2, 0) * vx + mtx(mbase, 2, 1) * vy + mtx(mbase, 2, 2) * vz, shift), lm);
 }
 
 /* Interpolate MAC (in .12 colour units) toward the far colour by IR0, then push the colour FIFO. */
 static void interpolate(i64 m1, i64 m2, i64 m3, int sf, int lm) {
     int shift = sf * 12;
-    set_ir(1, set_mac(1, ((i64)RFC << 12) - m1, shift), 0);
-    set_ir(2, set_mac(2, ((i64)GFC << 12) - m2, shift), 0);
-    set_ir(3, set_mac(3, ((i64)BFC << 12) - m3, shift), 0);
+    set_ir(1, set_mac(1, ((i64)RFC * 4096) - m1, shift), 0);
+    set_ir(2, set_mac(2, ((i64)GFC * 4096) - m2, shift), 0);
+    set_ir(3, set_mac(3, ((i64)BFC * 4096) - m3, shift), 0);
     set_ir(1, set_mac(1, (i64)IR1 * IR0 + m1, shift), lm);
     set_ir(2, set_mac(2, (i64)IR2 * IR0 + m2, shift), lm);
     set_ir(3, set_mac(3, (i64)IR3 * IR0 + m3, shift), lm);
@@ -285,9 +285,9 @@ static void interpolate(i64 m1, i64 m2, i64 m3, int sf, int lm) {
 
 /* Colour times IR (<< 4), as the second half of NCCS/NCDS/CC/CDP/DCPL. */
 static void color_ir(u32 r, u32 gr, u32 b, i64 *m1, i64 *m2, i64 *m3) {
-    *m1 = ((i64)r * IR1) << 4;
-    *m2 = ((i64)gr * IR2) << 4;
-    *m3 = ((i64)b * IR3) << 4;
+    *m1 = (i64)r * IR1 * 16;
+    *m2 = (i64)gr * IR2 * 16;
+    *m3 = (i64)b * IR3 * 16;
 }
 
 static void light(int v, int sf, int lm, int kind) {
@@ -351,9 +351,9 @@ void gte_cmd(gte_u32 op) {
         if (mx == 3) {
             /* "garbage" matrix: [-R<<4, R<<4, IR0], [RT13 x3], [RT22 x3] */
             i64 r = (i64)RGBC_R << 4;
-            set_ir(1, set_mac(1, (tx << 12) - r * vx + r * vy + IR0 * vz, shift), lm);
-            set_ir(2, set_mac(2, (ty << 12) + mtx(0, 0, 2) * (vx + vy + vz), shift), lm);
-            set_ir(3, set_mac(3, (tz << 12) + mtx(0, 1, 1) * (vx + vy + vz), shift), lm);
+            set_ir(1, set_mac(1, (tx * 4096) - r * vx + r * vy + IR0 * vz, shift), lm);
+            set_ir(2, set_mac(2, (ty * 4096) + mtx(0, 0, 2) * (vx + vy + vz), shift), lm);
+            set_ir(3, set_mac(3, (tz * 4096) + mtx(0, 1, 1) * (vx + vy + vz), shift), lm);
         } else {
             mat_mul(mx * 8, vx, vy, vz, tx, ty, tz, sf, lm);
         }
@@ -361,9 +361,15 @@ void gte_cmd(gte_u32 op) {
     }
     case 0x0C: { /* OP: cross product with the RT diagonal */
         i64 d1 = mtx(0, 0, 0), d2 = mtx(0, 1, 1), d3 = mtx(0, 2, 2);
-        set_ir(1, set_mac(1, IR3 * d2 - IR2 * d3, shift), lm);
-        set_ir(2, set_mac(2, IR1 * d3 - IR3 * d1, shift), lm);
-        set_ir(3, set_mac(3, IR2 * d1 - IR1 * d2, shift), lm);
+        /* All three products read the input IR vector before any result is
+         * written back. Camera basis construction depends on this simultaneity. */
+        i64 x = IR1, y = IR2, z = IR3;
+        m1 = z * d2 - y * d3;
+        m2 = x * d3 - z * d1;
+        m3 = y * d1 - x * d2;
+        set_ir(1, set_mac(1, m1, shift), lm);
+        set_ir(2, set_mac(2, m2, shift), lm);
+        set_ir(3, set_mac(3, m3, shift), lm);
         break;
     }
     case 0x3D: /* GPF */
@@ -373,9 +379,9 @@ void gte_cmd(gte_u32 op) {
         push_color();
         break;
     case 0x3E: /* GPL */
-        set_ir(1, set_mac(1, ((i64)MAC(1) << shift) + (i64)IR0 * IR1, shift), lm);
-        set_ir(2, set_mac(2, ((i64)MAC(2) << shift) + (i64)IR0 * IR2, shift), lm);
-        set_ir(3, set_mac(3, ((i64)MAC(3) << shift) + (i64)IR0 * IR3, shift), lm);
+        set_ir(1, set_mac(1, ((i64)MAC(1) * ((i64)1 << shift)) + (i64)IR0 * IR1, shift), lm);
+        set_ir(2, set_mac(2, ((i64)MAC(2) * ((i64)1 << shift)) + (i64)IR0 * IR2, shift), lm);
+        set_ir(3, set_mac(3, ((i64)MAC(3) * ((i64)1 << shift)) + (i64)IR0 * IR3, shift), lm);
         push_color();
         break;
     case 0x10: /* DPCS */
@@ -388,7 +394,7 @@ void gte_cmd(gte_u32 op) {
         }
         break;
     case 0x11: /* INTPL */
-        interpolate((i64)IR1 << 12, (i64)IR2 << 12, (i64)IR3 << 12, sf, lm);
+        interpolate((i64)IR1 * 4096, (i64)IR2 * 4096, (i64)IR3 * 4096, sf, lm);
         break;
     case 0x29: /* DCPL */
         color_ir(RGBC_R, RGBC_G, RGBC_B, &m1, &m2, &m3);

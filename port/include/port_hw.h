@@ -257,12 +257,11 @@ void port_ldrotkey_lo(const void *key, const void *anim, s32 frame, void *rot);
 #define ResetSpadStack12() ((void)0)
 
 /* ---- pointers that travel through 26-bit script values --------------------------------------------------- */
-/* The event-script evaluator keeps object pointers in 26 bits and the original restores KSEG0 with | 0x80000000.
- * DS pointers (0x02xxxxxx) survive the 26-bit mask unchanged, so the port's restore is the identity. Used by the
- * decomp's src_equiv/ (requested 2026-10-11). */
-#define SCRIPT_PTR_RESTORE(v) ((u32)(v))
-/* A pointer popped from a 26-bit script value (config/patches.txt): drop the sign extension of bit 25. */
+/* Script values are signed 26-bit integers. Native object pointers set bit 25,
+ * so popping them sign-extends 0x02xxxxxx to 0xFExxxxxx. Restore pointer bits
+ * at every pointer consumer, including src_equiv's evaluator opcode 0x61. */
 #define PORT_SCRIPT_PTR(v) ((u32)(v) & 0x03FFFFFF)
+#define SCRIPT_PTR_RESTORE(v) PORT_SCRIPT_PTR(v)
 /* "Is this a RAM pointer (not a file offset)?" where the PS1 tests > 0x80000000 (config/patches.txt). */
 #define PORT_IS_RAM_PTR(p) ((u32)(p) >= (u32)psx_ram && (u32)(p) < (u32)psx_ram + PSX_RAM_SIZE)
 /* The decomp's hooks for PS1-only idioms (ff9.h; defaults reproduce the PS1):

@@ -4,6 +4,12 @@
 
 Gp0State gp0_state = {0, 0, 1023, 511, 0, 0, 0, 0, 0, 0, 0, 0, 0};
 const Gp0Backend *gp0_backend;
+/* Snapshot counters for diagnosing the DS font presentation handoff. */
+unsigned int psx_gp0_font_probe[16];
+
+/* DS presentation may preserve font coverage when shrinking the display. */
+__attribute__((weak)) void psx_display_glyph(int x, int y, int w, int h) {}
+__attribute__((weak)) void psx_display_drawing(void) {}
 
 static inline int sext11(int v) {
     return (v << 21) >> 21;
@@ -37,6 +43,7 @@ static void set_clut(Gp0Mode *m, unsigned int uv) {
 /* One GP0 command at w[0]; returns the words it used. */
 static unsigned int command(const unsigned int *w, unsigned int avail) {
     unsigned int cmd = w[0] >> 24;
+    if ((cmd >= 0x20 && cmd < 0x80) || cmd == 2) psx_display_drawing();
     Gp0Mode m = {0};
     apply_texpage(&m, gp0_state.texpage);
 
@@ -131,7 +138,44 @@ static unsigned int command(const unsigned int *w, unsigned int avail) {
             wd = ht = 16;
         }
         if (gp0_backend && gp0_backend->rect) {
+            if (ht == 13 && wd <= 16 && m.textured) {
+                psx_gp0_font_probe[0]++;
+                psx_gp0_font_probe[1]=m.tx;
+                psx_gp0_font_probe[2]=m.ty;
+                psx_gp0_font_probe[3]=m.depth;
+                psx_gp0_font_probe[4]=v.x;
+                psx_gp0_font_probe[5]=v.y;
+                psx_gp0_font_probe[6]=gp0_state.area_x0;
+                psx_gp0_font_probe[7]=gp0_state.area_y0;
+                psx_gp0_font_probe[8]=gp0_state.area_x1;
+                psx_gp0_font_probe[9]=gp0_state.area_y1;
+            }
             gp0_backend->rect(&m, &v, wd, ht);
+            /* Battle names (F2DC0) and HP/MP strings (F2ED0/F3A8C)
+             * are cached sprites, so their original glyphs are not emitted
+             * every frame. Preserve coverage for these documented atlas
+             * regions too, rather than treating the HUD as scene pixels. */
+            int glyph = m.depth == 0 &&
+                (((m.tx == 896 || m.tx == 960) && ht == 13 && wd <= 16) ||
+                 (m.tx == 960 && ht == 8 && wd == 8));
+            int battle_name = m.depth == 0 && m.tx == 896 &&
+                ht == 12 && wd == 84 && v.v == 240 && (v.u == 0 || v.u == 84);
+            int battle_digits = m.depth == 0 && m.tx == 960 &&
+                ht == 10 && wd == 8 && v.v == 64 && v.u >= 152 && v.u <= 232 && !(v.u & 7);
+            int battle_values = m.depth == 2 && m.tx == 960 && ht == 10 &&
+                ((wd == 29 && v.u == 0) || (wd == 22 && v.u == 32)) &&
+                v.v >= 176 && v.v <= 212 && !((v.v - 176) % 12);
+            if (m.textured && m.ty == 256 && (glyph || battle_name || battle_digits || battle_values)) {
+                psx_gp0_font_probe[10]++;
+                int x0=v.x>gp0_state.area_x0 ? v.x : gp0_state.area_x0;
+                int y0=v.y>gp0_state.area_y0 ? v.y : gp0_state.area_y0;
+                int x1=v.x+wd<gp0_state.area_x1+1 ? v.x+wd : gp0_state.area_x1+1;
+                int y1=v.y+ht<gp0_state.area_y1+1 ? v.y+ht : gp0_state.area_y1+1;
+                if(x1>x0 && y1>y0) {
+                    psx_gp0_font_probe[11]++;
+                    psx_display_glyph(x0,y0,x1-x0,y1-y0);
+                }
+            }
         }
         return need;
     }

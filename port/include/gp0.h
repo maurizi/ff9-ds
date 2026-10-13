@@ -43,5 +43,6 @@ typedef struct {
 extern const Gp0Backend *gp0_backend;
 
 void gp0_run(const unsigned int *w, unsigned int len);
+void psx_gpu_draw_area(int *x, int *y, int *w, int *h);
 
 #endif

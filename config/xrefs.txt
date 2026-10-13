@@ -5,6 +5,7 @@
 #   <bin>:<vram> <target_bin>          a raw word in <bin>'s data
 
 main func_800A859C ovl_0b   # mode 2 loads file 11 at 0x800A7000; it is ovl_0b's .text start [code]
+main battleEnd_main ovl_65 # mode 8 loads file 101 (0x65), whose 0x801EF284 entry was renamed [code]
 main func_800BDED4 ovl_0b   # 106 calls in battle, all after func_800BED10 (ovl_0b only) [runtime]
 main func_800C1A8C ovl_0a   # script opcode 0x1E passes 5 args, matching ovl_0a's definition [code]
 main:801F4748 ovl_3a        # D_8006C9D4 entry 1 is file 0x3A [code]

@@ -4,6 +4,41 @@
 # Format: <path under decomp/> | <exact old text> | <new text> | <expected count>   # why
 # The count must match, so a patch that no longer applies (the decomp changed there) fails the build.
 
+# Optional test scenario enters after normal engine initialization, before mode dispatch.
+src/main/main.c | func_8001D268(); | func_8001D268(); port_scenario_bootstrap(); | 1
+src/main/main.c | rand_init(GetRCnt(2)); | rand_init(port_scenario_seed(GetRCnt(2))); | 1
+
+# CD-loaded battle-effect modules retain raw PSX pointers and MIPS code.
+src/ovl_0b/ovl_0b_2.c | fh = *(u8 **)dst; | fh = (u8 *)PSX_ADDR(*(u32 *)dst); | 1
+src/ovl_0b/ovl_0b_2.c | fn(d->unk38, D_800F78A4, D_800F78A4->unk10); | port_effect_call((u32)fn, d->unk38, (u32)D_800F78A4, D_800F78A4->unk10, 0, 0); | 1
+src/ovl_0b/ovl_0b_2.c | e->unk14(0, 0, 0, 0, &init) | port_effect_call((u32)e->unk14, 0, 0, 0, 0, (u32)&init) | 1
+src/ovl_0b/ovl_0b_2.c | e->unk14(1, e->unkC, D_800F78A4, e, args) | port_effect_call((u32)e->unk14, 1, (u32)e->unkC, (u32)D_800F78A4, (u32)e, (u32)args) | 1
+src/ovl_0b/ovl_0b_2.c | e->unk14(2, e->unkC, D_800F78A4, e, NULL) | port_effect_call((u32)e->unk14, 2, (u32)e->unkC, (u32)D_800F78A4, (u32)e, 0) | 1
+# Effect descriptors are reused. Native pointers do not have KSEG0's sign bit;
+# only a remaining offset can be relocated, never a previously native pointer.
+src/ovl_0b/ovl_0b_2.c | el->unk1C != -1 && !(el->unk1C & 0x80000000) | (u32)el->unk1C < PSX_RAM_SIZE | 1
+src/ovl_0b/ovl_0b_2.c | el->unk20 != -1 && !(el->unk20 & 0x80000000) | (u32)el->unk20 < PSX_RAM_SIZE | 1
+# Position fields can also be rewritten by the module after pool registration.
+# Decode the local read without changing the module's stored pointer bits.
+src/ovl_0b/ovl_0b_2.c | base = e->unk28; | base = (SVECTOR *)port_effect_data((u32)e->unk28); | 6
+src/ovl_0b/ovl_0b_2.c | func_800CF808((s16 *)e->unk28, (s16 *)e->unk2C, &ang.vx); | func_800CF808((s16 *)port_effect_data((u32)e->unk28), (s16 *)port_effect_data((u32)e->unk2C), &ang.vx); | 1
+src/ovl_0b/ovl_0b_2.c | func_800CFA00((s16 *)e->unk28, (s16 *)e->unk2C, acc, &off.vx); | func_800CFA00((s16 *)port_effect_data((u32)e->unk28), (s16 *)port_effect_data((u32)e->unk2C), acc, &off.vx); | 1
+# Effect output buffers may be supplied directly from a module-owned pool slot.
+src/ovl_0b/ovl_0b_2.c | n = ((Unk800D1494 *)p)->unk2; | p = (u8 *)port_effect_data((u32)p); out = (u8 *)port_effect_data((u32)out); n = ((Unk800D1494 *)p)->unk2; | 1
+# Particle motion and element hooks are also callbacks into loaded modules.
+src/ovl_0b/ovl_0b_2.c | m->unk8(e, owner, &pos, func_800E0134(e, owner), frame, frames) | port_effect_call_words((u32)m->unk8, (u32[]){(u32)e, (u32)owner, (u32)&pos, (u32)func_800E0134(e, owner), frame, frames}, 6) | 1
+src/ovl_0b/ovl_0b_2.c | el->unk24(e, owner, &pos, vp, &scale, &alpha, &cnt, frame, frames); | port_effect_call_words((u32)el->unk24, (u32[]){(u32)e, (u32)owner, (u32)&pos, (u32)vp, (u32)&scale, (u32)&alpha, (u32)&cnt, frame, frames}, 9); | 1
+
+# Battle sound panning accepts unit IDs 0..17 or an SVECTOR pointer. The PS1
+# address-bit test misses native ARM stack pointers (DS crash SystemError S/310).
+# All native pointers are above the 2 MiB PS1 address image; -1 is handled first.
+src/ovl_0b/ovl_0b_2.c | if (arg0 & 0x90000000) { | if ((u32)arg0 >= PSX_RAM_SIZE) { | 1
+
+# Full-screen TIM display follows OT[8]'s 24-bit link on the CPU (MIPS
+# 0x800B4DC4 / 0x800B4E40). Restore its native arena address before addPrim.
+# The raw link points into ITCM on DS and caused the post-briefing data abort.
+docs/wip/ovl_0a_800B4A5C.c | (u32 *)g_gameState->unk1C->unk10[g_gameState->unk1C->unk8][8] | PSX_OT_PTR(g_gameState->unk1C->unk10[g_gameState->unk1C->unk8][8]) | 2
+
 # Script values are 26 bits; on the PS1 a RAM pointer popped back (0x00xxxxxx, the RAM mirror) works as is. DS
 # pointers (0x02xxxxxx) set bit 25, which the 26-bit sign extension turns into 0xFExxxxxx: mask it back.
 # (func_80037ACC opcodes 0x70/0x71; reported by the decomp, 2026-10-11)
@@ -38,3 +73,44 @@ src/ovl_0a/ovl_0a.c | if (m->unk50->unk0 >= 2 && func_800AB0B0(m) == 0) { | if (
 # opening scene's script retries forever.
 src/ovl_0a/ovl_0a.c | void func_800B2CC0(s32 arg0, s32 arg1, s32 arg2, s32 arg3) { | s32 func_800B2CC0(s32 arg0, s32 arg1, s32 arg2, s32 arg3) { | 1
 src/ovl_0a/ovl_0a.c | func_800B31B8((FieldEvtCtx *)func_8001E350(arg0), arg1, arg2, arg3); | return func_800B31B8((FieldEvtCtx *)func_8001E350(arg0), arg1, arg2, arg3); | 1
+
+# Field movement collision query can return NULL. The PS1 still reads byte 0x0F (assembly 0x800478D8)
+# before checking the pointer at 0x800478FC. Preserve that low-RAM read without faulting on ARM/PC.
+docs/wip/main_800475D8.c | ((o->unkF >> 4) ^ 1) & 1 | ((PSX_NZ(o)->unkF >> 4) ^ 1) & 1 | 1
+
+# Cached mode overlays can arrive through StoreImage or a RAM copy, bypassing CD_getsector's relocation.
+# Patch only the restored prefix; trailing disc sectors still use psx_overlay_patch in the CD layer.
+src/main/main.c | loaded = e->unkC >> 11; | psx_overlay_patch(files[mode], (unsigned int)((u8 *)addrs.unk0[mode] - psx_ram), e->unkC); loaded = e->unkC >> 11; | 1
+
+# Battle effect setup queries target-selection before allocating g_btlUi. Verified on PSX:
+# g_btlUi == NULL at func_800EA004 entry; byte 0x12B4 is zero in readable kernel RAM.
+src/ovl_0b/ovl_0b_2.c | return g_btlUi->menuState == 3; | return PSX_NZ(g_btlUi)->menuState == 3; | 1
+# Baku, Marcus and Blank can have no texture-animation set. Animation/status
+# controls still dereference unk50: PSX 800BD600/614/628 write low RAM on KO.
+# DS low addresses alias ITCM, so restore the PSX low-RAM semantics at every
+# such dereference (including cast/index forms). Pointer assignment and NULL
+# tests in the loader remain unchanged.
+src/ovl_0b/ovl_0b.c | arg0->unk9C->unk50 | PSX_NZ(arg0->unk9C->unk50) | 14
+src/ovl_0b/ovl_0b.c | u->unk9C->unk50 | PSX_NZ(u->unk9C->unk50) | 2
+src/ovl_0b/ovl_0b.c | m->unk50[2].unk4 |= 1; | PSX_NZ(m->unk50)[2].unk4 |= 1; | 1
+src/ovl_0b/ovl_0b_2.c | u->unk9C->unk50 | PSX_NZ(u->unk9C->unk50) | 7
+src/ovl_0b/ovl_0b_2.c | (u8 *)p->unk0->unk50 + off | (u8 *)PSX_NZ(p->unk0->unk50) + off | 4
+src/ovl_0b/ovl_0b_2.c | &func_800DD02C(arg0, "Hi_StopSummonTexAnim()\nid:%d cannot use!")->unk0->unk50[arg1] | &PSX_NZ(func_800DD02C(arg0, "Hi_StopSummonTexAnim()\nid:%d cannot use!")->unk0->unk50)[arg1] | 1
+src/ovl_0b/ovl_0b_3.c | arg1->unk9C->unk50 | PSX_NZ(arg1->unk9C->unk50) | 6
+src/ovl_0b/ovl_0b_3.c | e = m->unk50 + i | e = PSX_NZ(m->unk50) + i | 1
+# A model's default motion may be 0xFFFF (Steiner model 0x028F). Original
+# 800AB8F8 reads its NULL motion header before the party selects a real clip.
+# Map the temporary dereference; keep the stored optional motion pointer NULL.
+src/ovl_0b/ovl_0b.c | c = e->unk8->unkC; | c = PSX_NZ(e->unk8->unkC); | 1
+# Idle battle animation checks curCmd before a command exists (PSX 0x80109888 == 0).
+src/ovl_0b/ovl_0b.c | u != cmd->unk4 && u->unk7D == 0 | u != PSX_NZ(cmd)->unk4 && u->unk7D == 0 | 1
+src/ovl_0b/ovl_0b.c | unk34.b.unk4 == 2 && cmd->cmdNo == 0x1F | unk34.b.unk4 == 2 && PSX_NZ(cmd)->cmdNo == 0x1F | 1
+src/ovl_0b/ovl_0b.c | u == cmd->unk4 && (u32)(cmd->cmdNo - 0x37) >= 7 | u == PSX_NZ(cmd)->unk4 && (u32)(PSX_NZ(cmd)->cmdNo - 0x37) >= 7 | 1
+# WIP draft uses a by-value struct to reproduce MIPS stack homes; native callers use four arguments.
+docs/wip/ovl_0b_800E4A3C.c | Pool6CEntry *func_800E4A3C(s32 arg0, s32 arg1, E4Arg arg2) { | Pool6CEntry *func_800E4A3C(s32 arg0, s32 arg1, s16 *arg2_a, s16 *arg2_b) { E4Arg arg2 = {arg2_a, arg2_b, NULL}; | 1
+# Battle help-text measurement explicitly passes the PS1 hidden structure-return pointer.
+src/ovl_0b/ovl_0b_2.c | func_8002AF70(&v.unk0, (s32)&D_801051F0); | port_measure_text_into(&v.unk0, &D_801051F0); | 1
+# The main dispatcher still uses the old numeric label for overlay 65's renamed entry.
+src/main/main.c | func_801EF284(); | battleEnd_main(); | 1
+# Effect setup can submit a native local packet/OT buffer; preserve its exact bounds.
+src/ovl_0b/ovl_0b_2.c | DrawOTag(ot); | port_draw_ot_buffer(ot, p, sizeof(*p)); | 1

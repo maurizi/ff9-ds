@@ -1,8 +1,49 @@
-build/
-ff9ds/
+# Generated builds and extracted game data
+/build/
+/ff9ds/
 /disks
+/assets/
+/captures/
+*.o
+*.a
 *.nds
 *.elf
+
+# Disc images and extracted binary blobs, wherever they land
+*.img
+*.iso
+*.bin
+*.cue
+*.ccd
+*.sub
+*.exe
+*.blob
+
+# Emulator saves, memory dumps, screenshots, and converted media
 *.mcr
 *.fv
+*.sav
+*.dsv
+*.state
+*.mln
+*.dump
+*.ppm
+*.png
+*.jpg
+*.jpeg
+*.bmp
+*.wav
+*.mp4
+
+# Local editor, agent, environment, and Python files
+/.vscode/
+/.idea/
+/.claude/
+/.codex/
+/CLAUDE.local.md
+.env
+.env.*
+!.env.example
+.venv/
 __pycache__/
+*.py[cod]

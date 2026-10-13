@@ -114,7 +114,10 @@ void plat_halt(void) {
     exit(2);
 }
 
+/* Optional production GX backend linked by the host allocation probe. */
+void render_gx_init(void) __attribute__((weak));
 void plat_video_init(void) {
+    if (render_gx_init) render_gx_init();
 }
 
 const char *plat_data_dir(void) {
@@ -125,6 +128,8 @@ int main(int argc, char **argv) {
     for (int i = 1; i < argc; i++) {
         if (!strcmp(argv[i], "--data") && i + 1 < argc) {
             data_dir = argv[++i];
+        } else if (!strcmp(argv[i], "--scenario") && i + 1 < argc) {
+            port_scenario_load(argv[++i]);
         } else if (!strcmp(argv[i], "--press") && i + 1 < argc) {
             if (!input_script_add(argv[++i])) {
                 fprintf(stderr, "bad --press %s (BUTTON@FRAME[+FRAMES])\n", argv[i]);
@@ -154,7 +159,7 @@ int main(int argc, char **argv) {
         } else if (!strcmp(argv[i], "--frames") && i + 1 < argc) {
             frame_limit = atol(argv[++i]);
         } else {
-            fprintf(stderr, "usage: %s [--data DIR] [--frames N] [--status N] [--watch ADDR:SIZE] [--press BUTTON@FRAME[+N]] [--render] [--dump N]\n", argv[0]);
+            fprintf(stderr, "usage: %s [--data DIR] [--scenario PATH] [--frames N] [--status N] [--watch ADDR:SIZE] [--press BUTTON@FRAME[+N]] [--render] [--dump N]\n", argv[0]);
             return 1;
         }
     }

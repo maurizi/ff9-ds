@@ -15,5 +15,10 @@
 
 #include PORT_HEADER
 #include "port_hw.h"
+#include "psx_runtime.h"
+#include "effect_vm.h"
+void port_measure_text_into(void *out, const void *text);
+void battleEnd_main(void);
+void port_draw_ot_buffer(unsigned int *head, const void *buffer, unsigned int size);
 
 #endif

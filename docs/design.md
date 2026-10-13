@@ -26,7 +26,7 @@ mode): 134 MHz ARM9, 16 MB RAM, SD access from the ARM7. Original DS mode (67 MH
 | CPU | R3000A 33.9 MHz + GTE | ARM946E-S 134 MHz (+ ARM7 33 MHz), 8 KB D-cache, 16 KB I-cache | the GTE becomes software; the DS geometry engine can take over hot paths later |
 | RAM | 2 MB | 16 MB | the whole game, all overlays, a 1 MB VRAM shadow and a PCM sample cache all fit |
 | scratchpad | 1 KB | DTCM 16 KB, ITCM 32 KB | scratchpad → DTCM; the GTE core and the OT walker → ITCM |
-| VRAM | 1 MB, framebuffers included | 656 KB in banks; the 3D engine writes the screen directly | textures ≤ 384 KB in practice; see §6 |
+| VRAM | 1 MB, framebuffers included | 656 KB in banks; the 3D engine writes the screen directly | 512 KB for the current GX path; planned effects reduce this budget; see §6 |
 | GPU | ~ 90k–180k polys/s, 4 blend modes | 2048 polygons / 6144 vertices per frame, alpha blending only, depth buffer, fog, 4bpp/8bpp paletted textures in the PS1's BGR555 | per-frame budget and blending are the main risks; see §5.4 |
 | sound | SPU: 24 ADPCM voices, ADSR, reverb, 512 KB | 16 channels (PCM8/PCM16/IMA-ADPCM; 14–15 noise), no ADSR or reverb, 2 capture units | software ADSR on the ARM7; see §7 |
 | storage | CD, 4 discs | SD card | everything is on SD; disc swaps resolve instantly |
@@ -267,7 +267,11 @@ renderer reproduces the opcode interpreter's layout (R15).
 | SD I/O, libnds, stack, UI | ~1 MB | |
 | **total** | **~9.5 MB of 16** | |
 
-**VRAM banks**:
+**VRAM banks** (planned layout):
+
+The current M2 GX renderer uses A/B/C/D for textures (512 KiB), E for texture palettes (64 KiB),
+and H for the debug console (4bpp font and tile map). The specialised field backgrounds
+and capture effects below are not implemented yet; adding them will reduce texture capacity.
 
 | bank | use |
 |---|---|

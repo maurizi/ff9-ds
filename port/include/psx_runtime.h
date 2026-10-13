@@ -32,6 +32,9 @@ void psx_load_image(const PsxImageChunk *img);
 
 /* Load main's data image and enter the game's main loop (decomp func_800127A0). Never returns. */
 void psx_run_game(void);
+void port_scenario_load(const char *path);
+void port_scenario_bootstrap(void);
+int port_scenario_seed(int ordinary_seed);
 
 /* Print to the debug console. */
 void port_log(const char *fmt, ...) __attribute__((format(printf, 1, 2)));
